@@ -1,0 +1,2 @@
+NVIDIA GSP firmware, extracted at build time from NVIDIA's release; the
+nvidia-firmware tool places what the present GPUs need into /boot

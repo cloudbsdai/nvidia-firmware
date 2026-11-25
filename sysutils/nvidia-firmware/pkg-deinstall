@@ -1,0 +1,73 @@
+#!/bin/sh
+#
+# Take the firmware out of /boot before the package goes away.  The nvidia
+# module must not be loaded while the files are removed, and the state of
+# the module has to be known: a state that cannot be found out stops the
+# removal as well.
+#
+# pkg(8) runs this script when the package is removed.  The first
+# argument is the name of the package and the second one is the phase:
+# the firmware is taken out in the DEINSTALL phase, when the files of
+# the package are still there.  In every other phase the script does
+# nothing.
+#
+# The prefix of the package is PKG_PREFIX.  PREFIX is only used when the
+# script is run by hand.
+
+PKG_PREFIX=${PKG_PREFIX:-${PREFIX:-/usr/local}}
+TOOL=${PKG_PREFIX}/sbin/nvidia-firmware
+
+case "${2:-}" in
+DEINSTALL)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+KLDSTAT=
+for candidate in /usr/sbin/kldstat /sbin/kldstat; do
+	if [ -x "${candidate}" ]; then
+		KLDSTAT=${candidate}
+		break
+	fi
+done
+if [ -z "${KLDSTAT}" ]; then
+	echo "kldstat(8) is not there; cannot tell whether the nvidia module is" \
+	    "loaded.  Remove the firmware by hand." >&2
+	exit 1
+fi
+
+"${KLDSTAT}" -q -m nvidia >/dev/null 2>&1
+case $? in
+0)
+	echo "The nvidia module is loaded; unload it before removing the package." >&2
+	exit 1
+	;;
+1)
+	# The module is not loaded.
+	;;
+*)
+	echo "Cannot tell whether the nvidia module is loaded; remove the" \
+	    "firmware by hand." >&2
+	exit 1
+	;;
+esac
+
+# The tool is the one that takes the firmware out.  When it is not there
+# the script says so and fails: the package is not removed with the
+# firmware still in /boot/firmware/nvidia.
+if [ ! -x "${TOOL}" ]; then
+	echo "nvidia-firmware is not installed in ${PKG_PREFIX}; the firmware" \
+	    "in /boot/firmware/nvidia was not taken out." >&2
+	echo "Remove /boot/firmware/nvidia by hand." >&2
+	exit 1
+fi
+
+if ! "${TOOL}" clean; then
+	echo "nvidia-firmware clean failed; the firmware is still in" \
+	    "/boot/firmware/nvidia." >&2
+	exit 1
+fi
+
+exit 0

@@ -1,0 +1,268 @@
+.Dd November 24, 2026
+.Dt NVIDIA-FIRMWARE 8
+.Os
+.Sh NAME
+.Nm nvidia-firmware
+.Nd place the GSP firmware the NVIDIA GPUs of the machine need into /boot
+.Sh SYNOPSIS
+.Nm
+.Cm detect
+.Op Fl n
+.Op Fl -no-delete
+.Op Fl -keep-versions
+.Op Fl -expect-card
+.Op Fl -version Ar version
+.Nm
+.Cm list
+.Op Fl -cards
+.Nm
+.Cm status
+.Nm
+.Cm verify
+.Nm
+.Cm install
+.Op Fl n
+.Fl -force Ar image
+.Op Fl -version Ar version
+.Nm
+.Cm install
+.Op Fl n
+.Fl -all
+.Op Fl -version Ar version
+.Nm
+.Cm remove
+.Op Fl n
+.Ar image
+.Nm
+.Cm clean
+.Op Fl n
+.Sh DESCRIPTION
+.Nm
+places the NVIDIA GSP firmware that the graphics adapters of the machine
+need into
+.Pa /boot/firmware/nvidia .
+The firmware itself comes from the
+.Nm nvidia-firmware
+package, which holds one directory per driver version under
+.Pa /usr/local/share/nvidia-firmware .
+Each of those directories holds the images of that version, a
+.Pa SHA256SUMS
+file with the hash of every image and the
+.Pa supported-gpus.json
+file that names the chips the driver knows.
+.Pp
+The options
+.Fl -libxo Ar json
+and
+.Fl -json
+write the output as JSON instead of text.
+.Fl -json
+is an alias for
+.Fl -libxo Ar json .
+.Pp
+The commands are:
+.Bl -tag -width Ds
+.It Cm detect
+Find the NVIDIA graphics adapters of the machine and place into
+.Pa /boot/firmware/nvidia
+exactly the images those adapters need.
+The version used is the one given with
+.Fl -version ,
+else the version the
+.Vt hw.nvidia.version_pin
+sysctl names when that version is installed, else the newest installed
+version.
+Only the images that
+.Nm
+placed itself are ever removed, and only when no adapter present needs them
+and they are not forced.
+A file in the directory that is not named in
+.Pa SHA256SUMS
+belongs to somebody else; it is reported as foreign and left alone.
+.Pp
+With
+.Fl -no-delete
+nothing is removed.
+The same effect comes from
+.Va nvidia_firmware_no_delete=YES
+in
+.Pa /etc/rc.conf
+or
+.Pa /etc/rc.conf.d/nvidia_firmware .
+Those two files are read with the same simple
+.Nm name Ns = Ns Ar value
+lines
+.Xr rc 8
+uses; no other syntax is understood.
+.Pp
+With
+.Fl -keep-versions
+the images of an older version stay in place.
+Without it the images of the older version are removed once the images of
+the version that is going to load are in place.
+.Pp
+With
+.Fl -expect-card
+the command fails when the machine has no NVIDIA graphics adapter.
+Without it the command places nothing, removes the images that are not
+needed and succeeds.
+.It Cm list
+List every installed version and every image of it: the size of the image,
+the chip families it serves, the products of those families the version
+knows about, whether the driver reaches that hardware today, and whether
+the image is placed in
+.Pa /boot/firmware/nvidia
+and for which adapter.
+.Pp
+With
+.Fl -cards
+only the graphics adapters of the machine are listed: the PCI selector, the
+device id, the name NVIDIA gives the chip in
+.Pa supported-gpus.json ,
+the family of the chip and the images it needs for every installed
+version.
+The list works when the firmware is not installed: the adapters are listed
+and the tool says that the firmware is not installed.
+.It Cm status
+Show what is in
+.Pa /boot/firmware/nvidia :
+the size and the version of every image, the adapter each image serves, the
+images that are forced and whether the no-delete setting is on.
+.It Cm verify
+Check every installed version of the share directory against its
+.Pa SHA256SUMS
+file and the files in
+.Pa /boot/firmware/nvidia
+against the
+.Pa SHA256SUMS
+file there.
+A file that was changed, a file that is missing and a file of ours that
+the inventory does not name are errors.
+A foreign file is reported but is not an error.
+.It Cm install
+Place an image that no adapter needs and mark it forced.
+.Fl -force Ar image
+places one image of the version, and
+.Fl -all
+places every image of the version.
+.It Cm remove Ar image
+Remove an image from
+.Pa /boot/firmware/nvidia
+and drop its forced mark.
+The image is gone at once; it is not left for the next
+.Cm detect .
+.Pp
+The command refuses to run while the loaded driver uses the image: unload
+the nvidia module first.
+A file that the
+.Pa SHA256SUMS
+file of the directory does not name belongs to somebody else and is never
+removed.
+When a card of the machine needs the image, the command warns about it and
+removes it anyway.
+.It Cm clean
+Remove every image
+.Nm
+placed in
+.Pa /boot/firmware/nvidia .
+The command refuses to run while the nvidia kernel module is loaded.
+.El
+.Pp
+Every command that changes something accepts
+.Fl n ,
+which prints what the command would do and changes nothing.
+.Pp
+Every command that changes the boot directory refuses to run while the
+nvidia kernel module is loaded, and refuses to run when it cannot tell
+whether the module is loaded: the tool does not change the firmware of a
+driver that is in use and does not guess.
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev NVIDIA_FIRMWARE_TEST_ROOT
+.It Ev NVIDIA_FIRMWARE_TEST_PCI
+.It Ev NVIDIA_FIRMWARE_TEST_KLD
+.It Ev NVIDIA_FIRMWARE_TEST_PIN
+These variables belong to the test suite of the program.
+They are ignored unless the program was built for the test suite, and the
+installed program ignores them in every case.
+.It Ev NVIDIA_FIRMWARE_TEST_ROOT
+The root of a fake system.
+The share directory, the boot directory and the two files of
+.Xr rc 8
+are looked for below it.
+.It Ev NVIDIA_FIRMWARE_TEST_PCI
+A file of device ids, one per line, that takes the place of the scan of the
+PCI bus.
+A line may name the PCI selector of the card after the device id.
+.It Ev NVIDIA_FIRMWARE_TEST_KLD
+The word
+.Ql loaded
+or
+.Ql not
+for the state of the nvidia kernel module.
+.It Ev NVIDIA_FIRMWARE_TEST_PIN
+The version the
+.Vt hw.nvidia.version_pin
+sysctl would name.
+.El
+.Sh FILES
+.Bl -tag -width ".Pa /boot/firmware/nvidia/SHA256SUMS" -compact
+.It Pa /boot/firmware/nvidia
+The directory the firmware is placed in.
+.It Pa /boot/firmware/nvidia/SHA256SUMS
+The inventory of that directory.
+Every line names one image:
+.Pp
+.Dl sha256  image  version  forced  size
+.Pp
+The hash is the one of the image in the share directory, the version is the
+driver version it came from, the fourth field is
+.Ql forced
+for an image that
+.Cm install
+placed and a dash for any other image, and the last field is the size of
+the image in bytes.
+.It Pa /usr/local/share/nvidia-firmware
+The directory the package installs the firmware into.
+.It Pa /usr/local/share/nvidia-firmware/nvidia-firmware.families
+The table that says which chip family a PCI device id belongs to and which
+images each driver version needs for that family.
+The program holds the same table inside itself, so that it can name the
+family of a card when the firmware is not installed.
+.It Pa /etc/rc.conf
+.It Pa /etc/rc.conf.d/nvidia_firmware
+The files that hold the
+.Va nvidia_firmware_no_delete
+setting.
+.El
+.Sh EXIT STATUS
+.Bl -tag -width Ds
+.It 0
+The command did what it was asked to do.
+.It 1
+The command failed.
+.It 2
+The command was used wrongly.
+.El
+.Sh EXAMPLES
+Place the firmware the adapters of the machine need:
+.Pp
+.Dl $ nvidia-firmware detect
+.Pp
+See what would be placed, without touching anything:
+.Pp
+.Dl $ nvidia-firmware detect -n
+.Pp
+Place the firmware of a version that is not the newest one:
+.Pp
+.Dl $ nvidia-firmware detect --version 580.178.04
+.Pp
+Write the list of the images as JSON:
+.Pp
+.Dl $ nvidia-firmware list --libxo json
+.Sh SEE ALSO
+.Xr kldstat 8 ,
+.Xr rc 8 ,
+.Xr sysctl 8
+.Sh AUTHORS
+.An "REVYTECH, Inc." team

@@ -1,0 +1,13 @@
+share/man/man8/nvidia-firmware.8.gz
+sbin/nvidia-firmware
+%%DATADIR%%/580.178.04/SHA256SUMS
+%%DATADIR%%/580.178.04/gsp_ga10x.bin
+%%DATADIR%%/580.178.04/gsp_tu10x.bin
+%%DATADIR%%/580.178.04/supported-gpus.json
+%%DATADIR%%/620.73.04/SHA256SUMS
+%%DATADIR%%/620.73.04/gsp_ga10x.bin
+%%DATADIR%%/620.73.04/gsp_tu10x.bin
+%%DATADIR%%/620.73.04/ucodes_ga10x.bin
+%%DATADIR%%/620.73.04/ucodes_tu10x.bin
+%%DATADIR%%/620.73.04/supported-gpus.json
+%%DATADIR%%/nvidia-firmware.families

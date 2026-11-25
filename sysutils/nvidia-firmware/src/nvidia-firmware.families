@@ -1,0 +1,120 @@
+# nvidia-firmware family table
+#
+# This file is data, not code: it says which chip family a PCI device id
+# belongs to, whether the driver reaches that family today, and which
+# firmware images each driver version needs for it.
+#
+# Syntax:
+#
+#	family <NAME>
+#		attaches yes|no
+#		range <lo> <hi>		inclusive PCI device id range
+#		exact <devid>		one device id, wins over every range
+#
+#	images <version> <family> <image> [<image> ...]
+#
+#	product <name> <series> <family>
+#
+# The product lines say which line of products a chip belongs to.  The
+# name is the name NVIDIA gives the product in the name of the chip; the
+# family is the family the chip is in.  The rules are looked at in the
+# order they are written: the first rule whose name is in the name of the
+# chip is the one that counts.  A word that holds a space is written
+# between double quotes.
+#
+# The tool and the check of the table read these rules, so that the name
+# of a product is written down in one place.
+#
+product "Ada" "RTX Ada" AD10x
+product "Blackwell" "Blackwell" GB20x
+product "RTX PRO" "RTX PRO" GB20x
+product "RTX Spark" "RTX Spark" GB20x
+product "RTX 6000D" "RTX 6000D" GB20x
+product "Quadro RTX" "Quadro RTX" TU10x
+product "TITAN RTX" "TITAN RTX" TU10x
+product "GeForce RTX 20" "RTX 20xx" TU10x
+product "RTX 3050 A" "RTX 3050 A" AD10x
+product "GeForce RTX 30" "RTX 30xx" GA10x
+product "RTX A" "RTX A-series" GA10x
+product "GeForce RTX 40" "RTX 40xx" AD10x
+product "GeForce RTX 50" "RTX 50xx" GB20x
+#
+# The families are the ones NVIDIA names in its firmware:
+#
+#	TU10x	Turing, the RTX 20 series and the Quadro RTX cards
+#	GA100	Ampere for the datacentre (A100, A30, A800)
+#	GA10x	Ampere for the rest (the RTX 30 series, the RTX A series)
+#	AD10x	Ada (the RTX 40 series, the RTX Ada workstation cards)
+#	GH100	Hopper (H100, H200, H800, GH200)
+#	GB20x	Blackwell (the RTX 50 series, the RTX PRO Blackwell cards)
+#
+# The driver of the native FreeBSD stack attaches to the RTX 30 series and
+# newer today, so the Turing and GA100 families are marked as "no".
+#
+# The ranges follow the device id blocks NVIDIA gives to each
+# architecture.  The exact entries name the devices the acceptance
+# criteria of the port call out.
+
+family TU10x
+	attaches no
+	# Turing: TU102, TU104, TU106, TU116 and TU117.
+	range 0x1e00 0x1fff
+	# TU116: the GTX 1650 and GTX 1660 series.
+	range 0x2180 0x21df
+	# The RTX 2050 is a TU116 and sits in the block of the GA10x
+	# cards; the exact entries take it out of that block.
+	exact 0x25a7
+	exact 0x25a9
+	exact 0x25ad
+	exact 0x25ed
+
+family GA100
+	attaches no
+	# GA100: A100, A30, A800.
+	range 0x20b0 0x20ff
+
+family GA10x
+	attaches yes
+	# GA102, GA104, GA106 and GA107: the RTX 30 series, the RTX A
+	# series and the A10 and A40.
+	range 0x2200 0x22ff
+	# The mobile and embedded GA10x cards.
+	range 0x2400 0x25ff
+	# NVIDIA RTX A4000 Laptop GPU.
+	exact 0x24b7
+
+family GH100
+	attaches yes
+	# GH100: H100, H200, H800, GH200 and H20.
+	range 0x2300 0x234f
+
+family AD10x
+	attaches yes
+	# AD102, AD103 and AD104: the RTX 40 series, the RTX Ada
+	# workstation cards and the L40 and L4.
+	range 0x2680 0x28ff
+
+family GB20x
+	attaches yes
+	# GB202, GB203, GB205 and GB10: the RTX 50 series, the RTX PRO
+	# Blackwell cards and the RTX Spark.
+	range 0x2b80 0x2fff
+	# NVIDIA GeForce RTX 5060 Ti.
+	exact 0x2d04
+
+# The images each version needs.  Version 620 adds the microcode images to
+# the GSP images; the README of the 620 tarball does not say otherwise.
+
+images 580.178.04 TU10x gsp_tu10x.bin
+images 580.178.04 GA100 gsp_tu10x.bin
+images 580.178.04 GA10x gsp_ga10x.bin
+images 580.178.04 AD10x gsp_ga10x.bin
+images 580.178.04 GH100 gsp_ga10x.bin
+images 580.178.04 GB20x gsp_ga10x.bin
+
+images 620.73.04 TU10x gsp_tu10x.bin ucodes_tu10x.bin
+images 620.73.04 GA100 gsp_tu10x.bin ucodes_tu10x.bin
+images 620.73.04 GA10x gsp_ga10x.bin ucodes_ga10x.bin
+images 620.73.04 AD10x gsp_ga10x.bin ucodes_ga10x.bin
+images 620.73.04 GH100 gsp_ga10x.bin ucodes_ga10x.bin
+images 620.73.04 GB20x gsp_ga10x.bin ucodes_ga10x.bin

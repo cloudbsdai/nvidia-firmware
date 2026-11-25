@@ -1,0 +1,40 @@
+#!/bin/sh
+#
+# Place the firmware the graphics adapters of this machine need.  The
+# command succeeds when the machine has no NVIDIA adapter at all; every
+# other failure is a failure of the installation.
+#
+# pkg(8) runs this script twice: once before the files of the package are
+# put in place and once after they are.  The first argument is the name
+# of the package and the second one is the phase: the tool is only there
+# in the POST-INSTALL phase, so the script does its work there and does
+# nothing in the other phase.
+#
+# The prefix of the package is PKG_PREFIX.  PREFIX is only used when the
+# script is run by hand.
+
+PKG_PREFIX=${PKG_PREFIX:-${PREFIX:-/usr/local}}
+TOOL=${PKG_PREFIX}/sbin/nvidia-firmware
+
+case "${2:-}" in
+POST-INSTALL)
+	;;
+*)
+	exit 0
+	;;
+esac
+
+if [ ! -x "${TOOL}" ]; then
+	echo "nvidia-firmware is not installed in ${PKG_PREFIX}; the firmware" \
+	    "the adapters of this machine need was not placed." >&2
+	exit 1
+fi
+
+if ! "${TOOL}" detect; then
+	echo "nvidia-firmware detect failed; the firmware the adapters of this" \
+	    "machine need was not placed." >&2
+	echo "Run \"${TOOL} detect\" by hand to see why." >&2
+	exit 1
+fi
+
+exit 0

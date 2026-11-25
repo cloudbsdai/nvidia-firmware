@@ -1,0 +1,12 @@
+# The build of the tool leaves its objects behind.
+*.o
+*.pieo
+*.full
+*.debug
+.depend*
+/sysutils/nvidia-firmware/src/nvidia-firmware
+/sysutils/nvidia-firmware/src/nvidia-firmware-test
+/sysutils/nvidia-firmware/src/nvidia-firmware.8.gz
+# The family table the build compiles into the program.
+sysutils/nvidia-firmware/src/nf_families_data.h
+sysutils/*/work/

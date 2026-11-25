@@ -1,0 +1,16 @@
+# NVIDIA GSP firmware images, pinned by version, image, size and sha256.
+#
+# One line per image:
+#
+#	<version> <image> <size> <sha256>
+#
+# The port verifies every extracted image against this table at build time and
+# fails the build when a size or a hash does not match.  Do not edit a hash
+# here without re-verifying the image against NVIDIA's published sha256sum.
+#
+580.178.04	gsp_tu10x.bin	30483544	369602eb3c63a398c0532052317938389a3d29e0f5660179dd15b47cda177df2
+580.178.04	gsp_ga10x.bin	75028464	3b89a63f2e7a0b496113d6e727564e902456fd81017b21d35d3eaba76b24dab2
+620.73.04	gsp_tu10x.bin	16700304	29e794f2826c441390a24d92b65476e18000e256a036b075a98b14002fc4693d
+620.73.04	gsp_ga10x.bin	18278552	db14c665049472a75bc2f1f1ba8f96345da76188aa9debc287c694445a3f19f2
+620.73.04	ucodes_tu10x.bin	12532480	ea49202bbab8edd513d532d6b6c5ca1d88475311fb224e0ac9bdba61035060b5
+620.73.04	ucodes_ga10x.bin	56128512	bbd68cb1b51f074e2d91107ed3dd10e813bbeadc6947859690f92331625cf58c
