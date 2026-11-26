@@ -15,14 +15,16 @@ SRCS=		nvidia-firmware.c \
 		nf_boot.c \
 		nf_cards.c \
 		nf_families.c \
+		nf_fetch.c \
+		nf_pin.c \
 		nf_rc.c \
-		nf_share.c \
 		nf_util.c
 HDRS=		nf_boot.h \
 		nf_cards.h \
 		nf_families.h \
+		nf_fetch.h \
+		nf_pin.h \
 		nf_rc.h \
-		nf_share.h \
 		nf_util.h
 MAN=		nvidia-firmware.8
 
@@ -32,18 +34,35 @@ MAN=		nvidia-firmware.8
 # of it for the compiler.
 FAMILIES=	nvidia-firmware.families
 FAMILIES_DATA=	nf_families_data.h
+# The directory of the pin table is a value of the caller: it comes from
+# the prefix the package is built with.  It is not written into the text
+# of a command of the compiler, where a quote or a semicolon of the path
+# would be read as shell syntax.  The path is read from the environment by
+# embed-paths.sh, which writes it into a header with the escaping that a C
+# string needs, and the compiler is given the header.
+PATHS_DATA=	nf_paths.h
 # The objects are named after the sources, and the object that holds the
 # table has to be made again when the table changes.  DPADD is not enough
 # here: it makes the program depend on the header, not the object that is
 # compiled with it.
 FAMILIES_OBJS=	${SRCS:S/.c$/.o/} ${SRCS:S/.c$/.pieo/}
 
-CLEANFILES+=	${FAMILIES_DATA}
+CLEANFILES+=	${FAMILIES_DATA} ${PATHS_DATA}
 
 CFLAGS+=	-Wall -Wextra -Werror
-NF_SHARE_DIR?=	${PREFIX}/share/nvidia-firmware
-CFLAGS+=	-DNF_SHARE_DIR='"${NF_SHARE_DIR}"'
+NF_DATA_DIR?=	${PREFIX}/share/nvidia-firmware
+# The path is handed to the generator through the environment: it is
+# never written into the text of a command of the compiler.
+export NF_DATA_PATH=${NF_DATA_DIR}
+CFLAGS+=	-include ${PATHS_DATA}
 CFLAGS+=	-DNF_BOOT_DIR='"/boot/firmware/nvidia"'
+#
+# The version of the program is the version of the package.  The port
+# gives its own DISTVERSION to the build, so that the program and the
+# package always carry the same version.
+#
+NF_VERSION?=	0.0.0
+CFLAGS+=	-DNF_VERSION='"${NF_VERSION}"'
 LDADD=		-lxo -lmd
 
 # The test flavour of the program honours the environment hooks that
@@ -58,9 +77,12 @@ all: ${PROG}
 ${FAMILIES_DATA}: ${FAMILIES} ${.CURDIR}/embed-families.sh
 	${SH} ${.CURDIR}/embed-families.sh ${FAMILIES} ${FAMILIES_DATA}
 
-${FAMILIES_OBJS}: ${FAMILIES_DATA}
+${PATHS_DATA}: ${.CURDIR}/embed-paths.sh
+	${SH} ${.CURDIR}/embed-paths.sh ${PATHS_DATA}
 
-${TESTPROG}: ${SRCS} ${HDRS} ${FAMILIES_DATA}
+${FAMILIES_OBJS}: ${FAMILIES_DATA} ${PATHS_DATA}
+
+${TESTPROG}: ${SRCS} ${HDRS} ${FAMILIES_DATA} ${PATHS_DATA}
 	${CC} ${TESTCFLAGS} ${CPPFLAGS} -o ${TESTPROG} ${SRCS} ${LDFLAGS} ${LDADD}
 
 test: ${TESTPROG}

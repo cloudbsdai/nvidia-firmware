@@ -227,6 +227,7 @@ check_command bmake bmake "the make that reads a port Makefile" true
 check_command gmake gmake "GNU make, the lint of the root Makefile runs under it" false
 check_command cc "" "the C compiler that builds the tool" true
 check_command mandoc "" "the linter of the manual page, the test suite uses it" true
+check_command python3 python3 "the program that makes the table of the firmware" true
 check_command pkg "" "the package manager of the ports tree" true
 
 # The places.

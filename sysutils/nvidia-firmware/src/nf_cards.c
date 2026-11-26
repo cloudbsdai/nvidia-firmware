@@ -155,6 +155,48 @@ nf_cards_scan_test(const char *path, struct nf_card **cards, size_t *n,
 }
 #endif
 
+/*
+ * Can the PCI bus be read at all?  A jail and a build host do not have
+ * /dev/pci: there is no bus to read there.  The answer is no, and the
+ * caller says so and changes nothing.
+ *
+ * An error that is not the absence of the bus is not the same thing: the
+ * bus is there and cannot be opened.  The answer is then -1 and the caller
+ * says that the bus cannot be read, because "no PCI bus" would send the
+ * reader to the wrong place.
+ */
+int
+nf_cards_bus_available(void)
+{
+	int fd;
+
+#ifdef NVIDIA_FIRMWARE_TESTING
+	{
+		const char *path = nf_cards_test_file();
+
+		if (path != NULL) {
+			if (strcmp(path, "none") == 0) {
+				errno = ENODEV;
+				return (0);
+			}
+			if (strcmp(path, "denied") == 0) {
+				errno = EACCES;
+				return (-1);
+			}
+			return (1);
+		}
+	}
+#endif
+	fd = open("/dev/pci", O_RDONLY);
+	if (fd < 0) {
+		if (errno == ENOENT || errno == ENXIO || errno == ENODEV)
+			return (0);
+		return (-1);
+	}
+	close(fd);
+	return (1);
+}
+
 static int
 nf_cards_scan_pci(struct nf_card **cards, size_t *n, size_t *cap)
 {

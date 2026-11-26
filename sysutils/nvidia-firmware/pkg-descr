@@ -1,2 +1,3 @@
-NVIDIA GSP firmware, extracted at build time from NVIDIA's release; the
-nvidia-firmware tool places what the present GPUs need into /boot
+Fetch the NVIDIA GSP firmware the graphics adapters of the machine need
+and place it in /boot/firmware/nvidia; every file is checked against the
+pin table before it is put in place

@@ -42,6 +42,10 @@
  * placed there:
  *
  *	<sha256>  <image>  <version>  <forced|->  <size>
+ *
+ * A file that cannot be read is an error and not an empty inventory: the
+ * tool cannot tell what it placed there, and it does not go on with half
+ * of the answer.
  */
 static int
 nf_boot_parse(struct nf_boot *boot, const char *path)
@@ -51,29 +55,15 @@ nf_boot_parse(struct nf_boot *boot, const char *path)
 
 	fp = fopen(path, "r");
 	if (fp == NULL)
-		return (0);
+		return (-1);
 	while (nf_read_line(fp, line, sizeof(line)) == 0) {
-		struct nf_boot_entry *e;
-		char *p = line;
 		char *fields[5];
-		int i;
+		off_t size = 0;
+		size_t n;
+		int forced = 0;
 
-		while (*p == ' ' || *p == '\t')
-			p++;
-		if (*p == '#' || *p == '\0')
-			continue;
-		for (i = 0; i < 5; i++) {
-			while (*p == ' ' || *p == '\t')
-				p++;
-			if (*p == '\0')
-				break;
-			fields[i] = p;
-			while (*p != '\0' && *p != ' ' && *p != '\t')
-				p++;
-			if (*p != '\0')
-				*p++ = '\0';
-		}
-		if (i < 3)
+		n = nf_split_fields(line, fields, 5);
+		if (n < 3)
 			continue;
 		/*
 		 * The name of an image is one path component.  A name that
@@ -85,35 +75,42 @@ nf_boot_parse(struct nf_boot *boot, const char *path)
 			errno = EINVAL;
 			return (-1);
 		}
-		e = realloc(boot->entries,
-		    (boot->nentries + 1) * sizeof(*boot->entries));
-		if (e == NULL) {
+		if (n > 3 && strcmp(fields[3], NF_BOOT_FORCED) == 0)
+			forced = 1;
+		if (n > 4)
+			size = (off_t)strtoll(fields[4], NULL, 10);
+		if (nf_image_add(&boot->entries, &boot->nentries, fields[2],
+		    fields[1], fields[0], size, forced) != 0) {
 			fclose(fp);
+			errno = ENOMEM;
 			return (-1);
 		}
-		boot->entries = e;
-		e = &boot->entries[boot->nentries++];
-		memset(e, 0, sizeof(*e));
-		snprintf(e->sha, sizeof(e->sha), "%s", fields[0]);
-		snprintf(e->name, sizeof(e->name), "%s", fields[1]);
-		snprintf(e->version, sizeof(e->version), "%s", fields[2]);
-		e->forced = (i > 3 && strcmp(fields[3], NF_BOOT_FORCED) == 0);
-		if (i > 4)
-			e->size = (off_t)strtoll(fields[4], NULL, 10);
+	}
+	if (ferror(fp)) {
+		fclose(fp);
+		return (-1);
 	}
 	fclose(fp);
 	return (0);
 }
 
-static void
+/*
+ * The files of the boot directory that are not ours.  A directory that
+ * cannot be read is an error: the list would be empty and the tool would
+ * think that every file in it is its own.
+ */
+static int
 nf_boot_foreign(struct nf_boot *boot)
 {
 	struct dirent *de;
 	DIR *dir;
 
 	dir = opendir(boot->dir);
-	if (dir == NULL)
-		return;
+	if (dir == NULL) {
+		if (errno == ENOENT)
+			return (0);
+		return (-1);
+	}
 	while ((de = readdir(dir)) != NULL) {
 		char path[PATH_MAX];
 		struct stat st;
@@ -127,14 +124,27 @@ nf_boot_foreign(struct nf_boot *boot)
 			continue;
 		if (nf_boot_find(boot, de->d_name) != NULL)
 			continue;
-		nf_strlist_add(&boot->foreign, de->d_name);
+		/*
+		 * A file that cannot be remembered is a file the tool does
+		 * not know about: it would put an image over it.  The list
+		 * has to grow, or the run stops.
+		 */
+		if (nf_strlist_add(&boot->foreign, de->d_name) != 0) {
+			closedir(dir);
+			errno = ENOMEM;
+			return (-1);
+		}
 	}
 	closedir(dir);
+	return (0);
 }
 
 /*
  * Does the directory hold a file that is not the inventory?  A name that
  * begins with a dot is not one of ours and does not count.
+ *
+ * A directory that cannot be read is an error and not an empty one: the
+ * tool cannot tell that there is nothing in it.
  */
 static int
 nf_boot_holds_files(const char *dir)
@@ -143,8 +153,11 @@ nf_boot_holds_files(const char *dir)
 	DIR *d;
 
 	d = opendir(dir);
-	if (d == NULL)
-		return (0);
+	if (d == NULL) {
+		if (errno == ENOENT)
+			return (0);
+		return (-1);
+	}
 	while ((de = readdir(d)) != NULL) {
 		char path[PATH_MAX];
 		struct stat st;
@@ -172,6 +185,10 @@ nf_boot_load(const char *dir, struct nf_boot *boot)
 	memset(boot, 0, sizeof(*boot));
 	snprintf(boot->dir, sizeof(boot->dir), "%s", dir);
 	nf_strlist_init(&boot->foreign);
+	if (nf_test_denied(dir)) {
+		errno = EACCES;
+		return (-1);
+	}
 	snprintf(path, sizeof(path), "%s/%s", dir, NF_SUM_FILE);
 	if (stat(path, &st) != 0) {
 		if (errno != ENOENT)
@@ -183,15 +200,14 @@ nf_boot_load(const char *dir, struct nf_boot *boot)
 		 * tool refuses it instead of taking it for an empty
 		 * inventory.
 		 */
-		if (nf_boot_holds_files(dir) != 0) {
-			errno = EINVAL;
+		if (nf_boot_holds_files(dir) != 0)
 			return (-1);
-		}
 		return (0);
 	}
 	if (nf_boot_parse(boot, path) != 0)
 		return (-1);
-	nf_boot_foreign(boot);
+	if (nf_boot_foreign(boot) != 0)
+		return (-1);
 	return (0);
 }
 
@@ -203,7 +219,7 @@ nf_boot_free(struct nf_boot *boot)
 	memset(boot, 0, sizeof(*boot));
 }
 
-struct nf_boot_entry *
+struct nf_image *
 nf_boot_find(struct nf_boot *boot, const char *name)
 {
 	size_t i;
@@ -219,18 +235,14 @@ int
 nf_boot_set(struct nf_boot *boot, const char *name, const char *version,
     const char *sha, off_t size, int forced)
 {
-	struct nf_boot_entry *e;
+	struct nf_image *e;
 
 	e = nf_boot_find(boot, name);
 	if (e == NULL) {
-		e = realloc(boot->entries,
-		    (boot->nentries + 1) * sizeof(*boot->entries));
-		if (e == NULL)
+		if (nf_image_add(&boot->entries, &boot->nentries, version,
+		    name, sha, size, forced) != 0)
 			return (-1);
-		boot->entries = e;
-		e = &boot->entries[boot->nentries++];
-		memset(e, 0, sizeof(*e));
-		snprintf(e->name, sizeof(e->name), "%s", name);
+		return (0);
 	}
 	snprintf(e->version, sizeof(e->version), "%s", version);
 	snprintf(e->sha, sizeof(e->sha), "%s", sha);
@@ -249,58 +261,42 @@ nf_boot_write(struct nf_boot *boot, int dryrun)
 
 	if (dryrun)
 		return (0);
+	/*
+	 * There is nothing to write and no directory to write it in: a
+	 * machine that has no boot directory does not need one.  This is
+	 * what a jail or a build host looks like.
+	 */
+	if (boot->nentries == 0 && !nf_file_exists(boot->dir))
+		return (0);
 	n = snprintf(buf, sizeof(buf),
 	    "# nvidia-firmware: the images in %s\n", boot->dir);
-	if (n < 0 || (size_t)n >= sizeof(buf))
+	if (n < 0 || (size_t)n >= sizeof(buf)) {
+		errno = EFBIG;
 		return (-1);
+	}
 	len = (size_t)n;
 	n = snprintf(buf + len, sizeof(buf) - len,
 	    "# sha256  image  version  forced  size\n");
-	if (n < 0 || (size_t)n >= sizeof(buf) - len)
+	if (n < 0 || (size_t)n >= sizeof(buf) - len) {
+		errno = EFBIG;
 		return (-1);
+	}
 	len += (size_t)n;
 	for (i = 0; i < boot->nentries; i++) {
-		struct nf_boot_entry *e = &boot->entries[i];
+		struct nf_image *e = &boot->entries[i];
 
 		n = snprintf(buf + len, sizeof(buf) - len,
 		    "%s  %s  %s  %s  %lld\n", e->sha, e->name, e->version,
 		    e->forced ? NF_BOOT_FORCED : "-", (long long)e->size);
-		if (n < 0 || (size_t)n >= sizeof(buf) - len)
+		if (n < 0 || (size_t)n >= sizeof(buf) - len) {
+			errno = EFBIG;
 			return (-1);
+		}
 		len += (size_t)n;
 	}
 	if (nf_mkdir_p(boot->dir, 0755) != 0)
 		return (-1);
 	return (nf_write_atomic(boot->dir, NF_SUM_FILE, buf, len));
-}
-
-/*
- * Make a copy of an image in the boot directory without putting it in
- * place.  The copy is in a temporary file whose name cannot be guessed;
- * the hash of the copy is checked against the hash that is given, and
- * the temporary file is thrown away when the check fails.
- */
-int
-nf_boot_stage(struct nf_boot *boot, const char *name, const char *version,
-    const char *sha, const char *src, off_t size, int forced,
-    struct nf_stage *stage)
-{
-	if (!nf_valid_image_name(name)) {
-		errno = EINVAL;
-		return (-1);
-	}
-	memset(stage, 0, sizeof(*stage));
-	snprintf(stage->name, sizeof(stage->name), "%s", name);
-	snprintf(stage->version, sizeof(stage->version), "%s", version);
-	snprintf(stage->sha, sizeof(stage->sha), "%s", sha);
-	stage->size = size;
-	stage->forced = forced;
-	if (nf_mkdir_p(boot->dir, 0755) != 0)
-		return (-1);
-	if (nf_stage_copy(src, boot->dir, sha, stage->tmp,
-	    sizeof(stage->tmp)) != 0)
-		return (-1);
-	return (0);
 }
 
 /*
@@ -356,26 +352,6 @@ nf_boot_placed(const struct nf_boot *boot, const char *name)
 }
 
 int
-nf_boot_place(struct nf_boot *boot, const char *name, const char *version,
-    const char *sha, const char *src, off_t size, int forced, int dryrun)
-{
-	char dst[PATH_MAX];
-
-	if (!nf_valid_image_name(name)) {
-		errno = EINVAL;
-		return (-1);
-	}
-	snprintf(dst, sizeof(dst), "%s/%s", boot->dir, name);
-	if (!dryrun) {
-		if (nf_mkdir_p(boot->dir, 0755) != 0)
-			return (-1);
-		if (nf_copy_verify(src, dst, sha) != 0)
-			return (-1);
-	}
-	return (nf_boot_set(boot, name, version, sha, size, forced));
-}
-
-int
 nf_boot_remove(struct nf_boot *boot, const char *name, int dryrun)
 {
 	char path[PATH_MAX];
@@ -427,8 +403,11 @@ nf_boot_cleanup(struct nf_boot *boot, int dryrun)
 		unlink(path);
 	/* The directory goes away only when it holds nothing else. */
 	dir = opendir(boot->dir);
-	if (dir == NULL)
-		return (0);
+	if (dir == NULL) {
+		if (errno == ENOENT)
+			return (0);
+		return (-1);
+	}
 	while ((de = readdir(dir)) != NULL) {
 		if (strcmp(de->d_name, ".") == 0 ||
 		    strcmp(de->d_name, "..") == 0)

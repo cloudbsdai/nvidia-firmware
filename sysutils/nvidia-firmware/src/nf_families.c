@@ -41,18 +41,47 @@ struct nf_families_parse {
 };
 
 /*
+ * A test hook: the number of the call that fails.  The list is not
+ * grown then, and the caller has to keep the list it had.  The hook is
+ * only there in a binary that was built for the test suite.
+ */
+static int
+nf_families_alloc_fail(void)
+{
+#ifdef NVIDIA_FIRMWARE_TESTING
+	static int calls = 0;
+	const char *test;
+
+	test = getenv("NVIDIA_FIRMWARE_TEST_FAMILIES_ALLOC_FAIL");
+	if (test == NULL || *test == '\0')
+		return (0);
+	calls++;
+	return (calls == atoi(test) ? 1 : 0);
+#else
+	return (0);
+#endif
+}
+
+/*
  * One more entry in a list of structs.  The list is made bigger, the
  * new entry is cleared and it is given back.
+ *
+ * The list that is there is kept when it cannot be made bigger: the
+ * caller frees it, and a list that is not there cannot be freed.
  */
 static void *
 nf_list_add(void *listp, size_t *n, size_t size)
 {
 	void **list = listp;
+	void *newlist;
 	void *item;
 
-	*list = realloc(*list, (*n + 1) * size);
-	if (*list == NULL)
+	if (nf_families_alloc_fail() != 0)
 		return (NULL);
+	newlist = realloc(*list, (*n + 1) * size);
+	if (newlist == NULL)
+		return (NULL);
+	*list = newlist;
 	item = (char *)*list + (*n) * size;
 	memset(item, 0, size);
 	(*n)++;
@@ -444,16 +473,27 @@ nf_families_attaches(const struct nf_families *fams, const char *family)
  * the order they are written: the first rule whose name is in the name of
  * the chip is the one that counts.
  */
-const char *
-nf_families_series(const struct nf_families *fams, const char *name)
+/*
+ * The lines of products a family is in.  The rules of the table say which
+ * line of products a chip belongs to and which family it is in, so the
+ * lines of a family are the lines of the rules that name it.
+ */
+int
+nf_families_series_of(const struct nf_families *fams, const char *family,
+    struct nf_strlist *out)
 {
 	size_t i;
 
-	if (name == NULL)
-		return (NULL);
+	nf_strlist_init(out);
 	for (i = 0; i < fams->nproducts; i++) {
-		if (strstr(name, fams->products[i].pattern) != NULL)
-			return (fams->products[i].series);
+		if (strcmp(fams->products[i].family, family) != 0)
+			continue;
+		if (nf_strlist_has(out, fams->products[i].series))
+			continue;
+		if (nf_strlist_add(out, fams->products[i].series) != 0) {
+			nf_strlist_free(out);
+			return (-1);
+		}
 	}
-	return (NULL);
+	return (0);
 }

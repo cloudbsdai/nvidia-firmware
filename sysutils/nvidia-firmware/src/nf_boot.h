@@ -34,17 +34,9 @@
 
 #define	NF_BOOT_FORCED	"forced"
 
-struct nf_boot_entry {
-	char name[NF_IMAGE_LEN];
-	char version[NF_VERSION_LEN];
-	char sha[NF_SHA256_LEN];
-	off_t size;
-	int forced;
-};
-
 struct nf_boot {
 	char dir[PATH_MAX];
-	struct nf_boot_entry *entries;
+	struct nf_image *entries;
 	size_t nentries;
 	struct nf_strlist foreign;	/* files we did not place */
 };
@@ -68,7 +60,7 @@ struct nf_stage {
 int		nf_boot_load(const char *, struct nf_boot *);
 void		nf_boot_free(struct nf_boot *);
 
-struct nf_boot_entry	*nf_boot_find(struct nf_boot *, const char *);
+struct nf_image		*nf_boot_find(struct nf_boot *, const char *);
 
 /* Add or replace an entry of the inventory. */
 int		nf_boot_set(struct nf_boot *, const char *, const char *,
@@ -78,16 +70,12 @@ int		nf_boot_set(struct nf_boot *, const char *, const char *,
 int		nf_boot_write(struct nf_boot *, int);
 
 /* Copy an image into the boot directory and record it. */
-int		nf_boot_place(struct nf_boot *, const char *, const char *,
-		    const char *, const char *, off_t, int, int);
 
 /*
  * Make a copy of an image in the boot directory without putting it in
  * place.  The copy is checked against the hash that is given; the
  * temporary file is thrown away when the check fails.
  */
-int		nf_boot_stage(struct nf_boot *, const char *, const char *,
-		    const char *, const char *, off_t, int, struct nf_stage *);
 
 /*
  * Put a staged copy in place and record it in the inventory.  The

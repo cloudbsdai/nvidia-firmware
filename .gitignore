@@ -10,3 +10,6 @@
 # The family table the build compiles into the program.
 sysutils/nvidia-firmware/src/nf_families_data.h
 sysutils/*/work/
+# The names of the machines of the project.  They are ours and are not of
+# the reader: the file is not in the repository.
+tests/internal-names.local

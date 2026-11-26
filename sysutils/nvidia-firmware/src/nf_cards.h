@@ -57,4 +57,14 @@ int		nf_cards_scan(struct nf_card **, size_t *);
 void		nf_cards_families(struct nf_card *, size_t,
 		    const struct nf_families *);
 
+/*
+ * Can the PCI bus be read?  A jail and a build host have no /dev/pci,
+ * and the commands that need the cards of the machine say so and change
+ * nothing there.
+ *
+ * The answer is 1 when the bus can be read, 0 when there is no bus, and
+ * -1 when the bus is there and cannot be opened.
+ */
+int		nf_cards_bus_available(void);
+
 #endif /* NF_CARDS_H */

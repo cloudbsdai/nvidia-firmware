@@ -39,12 +39,12 @@
 #define	NF_CARD_NAME_LEN	192		/* the name of a chip */
 
 /*
- * Paths used by the tool.  The share directory holds one directory per
- * driver version; the boot directory is where the firmware that the
+ * Paths used by the tool.  The data directory holds the pin table and the
+ * table of the families; the boot directory is where the firmware that the
  * present GPUs need is placed.
  */
-#ifndef NF_SHARE_DIR
-#define	NF_SHARE_DIR	"/usr/local/share/nvidia-firmware"
+#ifndef NF_DATA_DIR
+#define	NF_DATA_DIR	"/usr/local/share/nvidia-firmware"
 #endif
 #ifndef NF_BOOT_DIR
 #define	NF_BOOT_DIR	"/boot/firmware/nvidia"
@@ -52,7 +52,26 @@
 
 #define	NF_FAMILIES_FILE	"nvidia-firmware.families"
 #define	NF_SUM_FILE		"SHA256SUMS"
-#define	NF_GPUS_JSON		"supported-gpus.json"
+#define	NF_PIN_FILE		"versions.list"
+
+/*
+ * The version of the program.  It is the version of the package, and the
+ * package is ours: the version is the date of the day the package was
+ * made.  The versions of the NVIDIA driver are data in the pin table and
+ * are never the version of the program.
+ *
+ * The port gives its own DISTVERSION to the build, so that the program
+ * and the package always carry the same version.
+ */
+#ifndef NF_VERSION
+#define	NF_VERSION "0.0.0"
+#endif
+
+/*
+ * The version of the schema of the JSON output.  It is bumped whenever a
+ * field of the output is added, removed or changed.
+ */
+#define	NF_SCHEMA_VERSION "2.1"
 
 /* Growable string list. */
 struct nf_strlist {
@@ -66,6 +85,38 @@ int		nf_strlist_add(struct nf_strlist *, const char *);
 void		nf_strlist_free(struct nf_strlist *);
 int		nf_strlist_has(const struct nf_strlist *, const char *);
 
+/*
+ * One image file: the file itself, the driver version it belongs to,
+ * its hash and its size.  The inventory of the boot directory and the
+ * pin table both hold image files, so both hold them in this shape and
+ * both add them with the one helper below.
+ */
+struct nf_image {
+	char version[NF_VERSION_LEN];
+	char name[NF_IMAGE_LEN];
+	char sha[NF_SHA256_LEN];
+	off_t size;
+	int forced;			/* the inventory marks its images */
+};
+
+/*
+ * Add an image to a list of images.  The list grows as it goes and the
+ * new image is a copy of the one that is given.  Returns 0 when the
+ * image was added and -1 when the memory for it is not there.
+ */
+int		nf_image_add(struct nf_image **, size_t *, const char *,
+		    const char *, const char *, off_t, int);
+
+/*
+ * Split a line of a table into its words.  The words are cut out of the
+ * line itself, so the line is changed and the words point into it.
+ *
+ * A line that holds nothing has no words: that is an empty line and a
+ * line that begins with a hash.  The number of words that were found is
+ * returned, and it is less than max when the line holds fewer words.
+ */
+size_t		nf_split_fields(char *, char **, size_t);
+
 /* String helpers. */
 char		*nf_strdup(const char *);
 int		nf_parse_u32(const char *, uint32_t *);
@@ -74,7 +125,6 @@ int		nf_parse_devid(const char *, uint32_t *);
 /* Path helpers. */
 int		nf_mkdir_p(const char *, mode_t);
 int		nf_file_exists(const char *);
-off_t		nf_file_size(const char *);
 
 /*
  * Is the path a regular file?  A symbolic link is not: the link itself
@@ -94,7 +144,6 @@ int		nf_valid_image_name(const char *);
 int		nf_path_dir(const char *, char *, size_t);
 
 /* Hashing. */
-int		nf_sha256_file(const char *, char *);
 int		nf_sha256_fd(int, char *);
 void		nf_sha256_hex(const unsigned char *, char *);
 
@@ -113,9 +162,13 @@ int		nf_sha256_regular(const char *, char *);
  * name is not predictable and no symbolic link can be followed.  The copy
  * is not put in place: the caller renames it when every copy of the run
  * has been made.
+ *
+ * The copy stops when more than maxbytes would be written: the limit is
+ * enforced while the file is written and not afterwards, so that a file
+ * that is bigger than the limit cannot fill the disk of the machine.
  */
-int		nf_stage_copy(const char *, const char *, const char *, char *,
-		    size_t);
+int		nf_stage_copy(const char *, const char *, const char *, off_t,
+		    char *, size_t);
 
 /* Put a staged copy in place; rename(2) never follows a symbolic link. */
 int		nf_commit_staged(const char *, const char *);
@@ -130,8 +183,11 @@ void		nf_discard_staged(const char *);
  * flushed to stable storage, the hash of the file that was written is
  * checked against want_sha and the temporary file is renamed over dst
  * only when the hash matches.  A symbolic link is never created.
+ *
+ * The copy stops when more than maxbytes would be written: the limit is
+ * enforced while the file is written.
  */
-int		nf_copy_verify(const char *, const char *, const char *);
+int		nf_copy_verify(const char *, const char *, const char *, off_t);
 
 /*
  * Write a file in a directory and put it in place atomically.  The
@@ -144,7 +200,29 @@ int		nf_write_atomic(const char *, const char *, const char *, size_t);
 /* Compare two dotted version numbers numerically; <0, 0 or >0. */
 int		nf_version_cmp(const char *, const char *);
 
+/*
+ * Read a version of ours.  The version is the date of the day the
+ * package was made: the year, the month and the day, written as three
+ * numbers with dots in between.  A release of the same day carries a
+ * suffix, such as 2026.11.26.1, and the suffix is not part of the three
+ * numbers.
+ *
+ * The one parser of the program: the text of the version and the three
+ * numbers of the version always come from the same place.
+ *
+ * Returns 0 when the version was read and -1 when it was not.
+ */
+int		nf_version_parse(const char *, int *, int *, int *);
+
 /* Read one line (without the newline) from an open file. */
 int		nf_read_line(FILE *, char *, size_t);
+
+/*
+ * Is the path one that the test asks the program not to read?  The paths
+ * are in the variable NVIDIA_FIRMWARE_TEST_DENY, separated by colons.
+ * The program that is built for the test suite refuses them with EACCES;
+ * the installed program never refuses anything.
+ */
+int		nf_test_denied(const char *);
 
 #endif /* NF_UTIL_H */

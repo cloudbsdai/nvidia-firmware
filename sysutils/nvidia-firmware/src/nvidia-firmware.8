@@ -1,20 +1,29 @@
-.Dd November 24, 2026
+.Dd November 26, 2026
 .Dt NVIDIA-FIRMWARE 8
 .Os
 .Sh NAME
 .Nm nvidia-firmware
-.Nd place the GSP firmware the NVIDIA GPUs of the machine need into /boot
+.Nd fetch and place the GSP firmware the NVIDIA GPUs of the machine need
 .Sh SYNOPSIS
+.Nm
+.Op Fl -version
 .Nm
 .Cm detect
 .Op Fl n
 .Op Fl -no-delete
 .Op Fl -keep-versions
 .Op Fl -expect-card
-.Op Fl -version Ar version
+.Op Fl -driver-version Ar version
+.Op Fl -from Ar directory
+.Nm
+.Cm fetch
+.Op Fl n
+.Op Fl -driver-version Ar version
+.Op Fl -from Ar directory
 .Nm
 .Cm list
 .Op Fl -cards
+.Op Fl -supported
 .Nm
 .Cm status
 .Nm
@@ -23,12 +32,14 @@
 .Cm install
 .Op Fl n
 .Fl -force Ar image
-.Op Fl -version Ar version
+.Op Fl -driver-version Ar version
+.Op Fl -from Ar directory
 .Nm
 .Cm install
 .Op Fl n
 .Fl -all
-.Op Fl -version Ar version
+.Op Fl -driver-version Ar version
+.Op Fl -from Ar directory
 .Nm
 .Cm remove
 .Op Fl n
@@ -38,18 +49,35 @@
 .Op Fl n
 .Sh DESCRIPTION
 .Nm
-places the NVIDIA GSP firmware that the graphics adapters of the machine
-need into
+fetches the NVIDIA GSP firmware that the graphics adapters of the machine
+need and places it in
 .Pa /boot/firmware/nvidia .
-The firmware itself comes from the
-.Nm nvidia-firmware
-package, which holds one directory per driver version under
-.Pa /usr/local/share/nvidia-firmware .
-Each of those directories holds the images of that version, a
-.Pa SHA256SUMS
-file with the hash of every image and the
-.Pa supported-gpus.json
-file that names the chips the driver knows.
+.Pp
+The firmware is never shipped with the package.
+The package holds the pin table and the table of the chip families.
+The pin table is the file
+.Pa /usr/local/share/nvidia-firmware/versions.list ;
+it says which file belongs to which driver version and how big it is and
+what its hash is.
+The tool fetches the file the adapters need and checks its size and its
+hash against the pin table before it puts it in place: a file that does
+not match is never placed and nothing of it is left behind.
+.Pp
+The file is fetched from the release of the driver on
+.Lk https://download.nvidia.com/XFree86/FreeBSD-x86_64 .
+A machine that has no network takes the file from a directory of its own
+with
+.Fl -from ;
+the directory holds the files themselves, either flat or in a directory
+per driver version.
+.Pp
+The release is never unpacked as a whole: the names of its members are
+read from it and only the member that is wanted is taken out of it.
+The number of bytes that is written is bounded by the size the pin table
+gives, so that an archive cannot fill the disk of the machine.
+The programs of the base system are run with their own path: the
+.Pa PATH
+of whoever runs the tool is never searched.
 .Pp
 The options
 .Fl -libxo Ar json
@@ -59,26 +87,39 @@ write the output as JSON instead of text.
 .Fl -json
 is an alias for
 .Fl -libxo Ar json .
+Every JSON object of the program carries the version of the program and
+the version of the schema of the output; the schema version is bumped
+whenever a field of the output is added, removed or changed.
 .Pp
 The commands are:
 .Bl -tag -width Ds
 .It Cm detect
 Find the NVIDIA graphics adapters of the machine and place into
 .Pa /boot/firmware/nvidia
-exactly the images those adapters need.
+exactly the files those adapters need.
 The version used is the one given with
-.Fl -version ,
+.Fl -driver-version ,
 else the version the
 .Vt hw.nvidia.version_pin
-sysctl names when that version is installed, else the newest installed
-version.
-Only the images that
+sysctl names.
+A version that the pin table does not name is an error and not a reason
+to use another one: the driver would get the firmware of a version it
+does not want.
+When nothing is pinned the newest version of the pin table is used.
+Only the files that
 .Nm
-placed itself are ever removed, and only when no adapter present needs them
-and they are not forced.
-A file in the directory that is not named in
-.Pa SHA256SUMS
-belongs to somebody else; it is reported as foreign and left alone.
+placed itself are ever removed, and only when no adapter present needs
+them and they are not forced.
+A file in the directory that the inventory does not name belongs to
+somebody else; it is reported as foreign and left alone.
+.Pp
+A machine that has no PCI bus, such as a jail or a build host, has no
+adapter to be found.
+The command says why, changes nothing and succeeds, so that the package
+can be installed there.
+The firmware is placed on the host with
+.Cm detect
+after the machine has booted.
 .Pp
 With
 .Fl -no-delete
@@ -94,74 +135,91 @@ Those two files are read with the same simple
 lines
 .Xr rc 8
 uses; no other syntax is understood.
+A file that cannot be read is an error and nothing is removed: the tool
+cannot tell that it may take the files away, so it takes none of them
+away.
 .Pp
 With
 .Fl -keep-versions
-the images of an older version stay in place.
-Without it the images of the older version are removed once the images of
+the files of an older version stay in place.
+Without it the files of the older version are removed once the files of
 the version that is going to load are in place.
 .Pp
 With
 .Fl -expect-card
 the command fails when the machine has no NVIDIA graphics adapter.
-Without it the command places nothing, removes the images that are not
+Without it the command places nothing, removes the files that are not
 needed and succeeds.
+.It Cm fetch
+Place the files the graphics adapters of the machine need, and nothing
+else.
+Nothing is ever removed by this command and a file that is in place is
+never replaced, so the command may run while the nvidia module is
+loaded: a file that is not there yet is not the firmware of the driver
+that is running.
+The rule of
+.Xr devd 8
+in
+.Pa /usr/local/etc/devd/nvidia_firmware.conf
+calls this command when a graphics adapter of NVIDIA is attached to the
+machine.
 .It Cm list
-List every installed version and every image of it: the size of the image,
-the chip families it serves, the products of those families the version
-knows about, whether the driver reaches that hardware today, and whether
-the image is placed in
+List every file of the pin table: the driver version it belongs to, its
+size, its hash, the chip families it serves and the lines of products of
+those families.
+With
+.Fl -supported
+the list is the table of the firmware the package supports and nothing
+else is told: the list works when the boot directory cannot be read.
+Without it the list also says whether the file is placed in
 .Pa /boot/firmware/nvidia
 and for which adapter.
 .Pp
 With
 .Fl -cards
-only the graphics adapters of the machine are listed: the PCI selector, the
-device id, the name NVIDIA gives the chip in
-.Pa supported-gpus.json ,
-the family of the chip and the images it needs for every installed
-version.
-The list works when the firmware is not installed: the adapters are listed
-and the tool says that the firmware is not installed.
+only the graphics adapters of the machine are listed: the PCI selector,
+the device id, the family of the chip and the files it needs for every
+driver version of the pin table.
 .It Cm status
 Show what is in
 .Pa /boot/firmware/nvidia :
-the size and the version of every image, the adapter each image serves, the
-images that are forced and whether the no-delete setting is on.
+the size and the version of every file, the adapter each file serves, the
+files that are forced and whether the no-delete setting is on.
 .It Cm verify
-Check every installed version of the share directory against its
-.Pa SHA256SUMS
-file and the files in
+Check the files in
 .Pa /boot/firmware/nvidia
-against the
-.Pa SHA256SUMS
-file there.
-A file that was changed, a file that is missing and a file of ours that
-the inventory does not name are errors.
+against the pin table.
+A file that was changed, a file that is missing and a file of ours whose
+driver version is not in the pin table are errors.
 A foreign file is reported but is not an error.
 .It Cm install
-Place an image that no adapter needs and mark it forced.
+Place a file that no adapter needs and mark it forced.
 .Fl -force Ar image
-places one image of the version, and
+places one file of the version, and
 .Fl -all
-places every image of the version.
+places every file of the version.
+A file of somebody else that has the name of an image is never
+overwritten: the install refuses it before it fetches anything.
+The dry run fetches the files and checks them in a directory of its own
+and says what it would place; it fails in the same way as the run that
+follows it.
+The result tells the files that are really in the boot directory; a file
+that was not placed is named as one that was not.
 .It Cm remove Ar image
-Remove an image from
+Remove a file from
 .Pa /boot/firmware/nvidia
 and drop its forced mark.
-The image is gone at once; it is not left for the next
+The file is gone at once; it is not left for the next
 .Cm detect .
 .Pp
-The command refuses to run while the loaded driver uses the image: unload
+The command refuses to run while the loaded driver uses the file: unload
 the nvidia module first.
-A file that the
-.Pa SHA256SUMS
-file of the directory does not name belongs to somebody else and is never
-removed.
-When a card of the machine needs the image, the command warns about it and
+A file that the inventory of the directory does not name belongs to
+somebody else and is never removed.
+When a card of the machine needs the file, the command warns about it and
 removes it anyway.
 .It Cm clean
-Remove every image
+Remove every file
 .Nm
 placed in
 .Pa /boot/firmware/nvidia .
@@ -172,28 +230,61 @@ Every command that changes something accepts
 .Fl n ,
 which prints what the command would do and changes nothing.
 .Pp
-Every command that changes the boot directory refuses to run while the
-nvidia kernel module is loaded, and refuses to run when it cannot tell
+Every command that changes the boot directory takes the lock of the
+program, the file
+.Pa /var/run/nvidia-firmware.lock ,
+and reads the state of the module under it.
+The check and the change are one thing then, and a run that finds the
+lock taken changes nothing and says so.
+The lock is in a directory that only root may write in: the commands that
+change the boot directory have to run as root or with
+.Cm doas .
+A run that cannot take the lock says so, and says which rights it needs.
+.Pp
+The commands that take files away or replace them refuse to run while the
+nvidia kernel module is loaded, and refuse to run when they cannot tell
 whether the module is loaded: the tool does not change the firmware of a
 driver that is in use and does not guess.
+The state of the module is read again right before the boot directory is
+changed, so that a driver that came up in the meantime stops the run.
+The lock of the program is not a lock of the kernel:
+.Xr kldload 8
+does not take it, so a module that is loaded between the last reading of
+the state and the change itself is not seen by the tool.
+The window is as small as the tool can make it; a machine that loads the
+driver on its own has to keep it out of the way of the tool.
+The module has to be unloaded before the package is removed or upgraded
+as well: the firmware cannot be taken away while the driver uses it.
 .Sh ENVIRONMENT
 .Bl -tag -width Ds
+.It Ev NVIDIA_FIRMWARE_MIRROR
+The directory the firmware is taken from when there is no network.
+It holds the files themselves, either flat or in a directory per driver
+version, or the release of the driver.
+The option
+.Fl -from
+says the same thing on the command line and wins over this variable.
 .It Ev NVIDIA_FIRMWARE_TEST_ROOT
 .It Ev NVIDIA_FIRMWARE_TEST_PCI
 .It Ev NVIDIA_FIRMWARE_TEST_KLD
 .It Ev NVIDIA_FIRMWARE_TEST_PIN
+.It Ev NVIDIA_FIRMWARE_TEST_LOCK
+.It Ev NVIDIA_FIRMWARE_TEST_FAMILIES_ALLOC_FAIL
 These variables belong to the test suite of the program.
 They are ignored unless the program was built for the test suite, and the
 installed program ignores them in every case.
 .It Ev NVIDIA_FIRMWARE_TEST_ROOT
 The root of a fake system.
-The share directory, the boot directory and the two files of
+The data directory, the boot directory and the two files of
 .Xr rc 8
 are looked for below it.
 .It Ev NVIDIA_FIRMWARE_TEST_PCI
-A file of device ids, one per line, that takes the place of the scan of the
-PCI bus.
+A file of device ids, one per line, that takes the place of the scan of
+the PCI bus.
 A line may name the PCI selector of the card after the device id.
+The word
+.Ql none
+takes the place of a machine that has no PCI bus at all.
 .It Ev NVIDIA_FIRMWARE_TEST_KLD
 The word
 .Ql loaded
@@ -204,31 +295,44 @@ for the state of the nvidia kernel module.
 The version the
 .Vt hw.nvidia.version_pin
 sysctl would name.
+.It Ev NVIDIA_FIRMWARE_TEST_LOCK
+The file that takes the place of the lock of the program.
+.It Ev NVIDIA_FIRMWARE_TEST_FAMILIES_ALLOC_FAIL
+The number of the call that cannot make the list of the families bigger.
 .El
 .Sh FILES
 .Bl -tag -width ".Pa /boot/firmware/nvidia/SHA256SUMS" -compact
 .It Pa /boot/firmware/nvidia
 The directory the firmware is placed in.
+.It Pa /var/run/nvidia-firmware.lock
+The lock of the program.
+Every command that changes the boot directory holds it while it works.
 .It Pa /boot/firmware/nvidia/SHA256SUMS
 The inventory of that directory.
-Every line names one image:
+Every line names one file:
 .Pp
 .Dl sha256  image  version  forced  size
 .Pp
-The hash is the one of the image in the share directory, the version is the
-driver version it came from, the fourth field is
+The hash is the hash of the pin table, the version is the driver version
+it belongs to, the fourth field is
 .Ql forced
-for an image that
+for a file that
 .Cm install
-placed and a dash for any other image, and the last field is the size of
-the image in bytes.
+placed and a dash for any other file, and the last field is the size of
+the file in bytes.
 .It Pa /usr/local/share/nvidia-firmware
-The directory the package installs the firmware into.
+The directory the package installs its data files into.
+.It Pa /usr/local/share/nvidia-firmware/versions.list
+The pin table: the driver version of every file, its size and its hash.
 .It Pa /usr/local/share/nvidia-firmware/nvidia-firmware.families
 The table that says which chip family a PCI device id belongs to and which
-images each driver version needs for that family.
+files each driver version needs for that family.
 The program holds the same table inside itself, so that it can name the
-family of a card when the firmware is not installed.
+family of a card when the firmware is not placed.
+.It Pa /usr/local/etc/devd/nvidia_firmware.conf
+The rule of
+.Xr devd 8
+that places the firmware when a graphics adapter of NVIDIA is attached.
 .It Pa /etc/rc.conf
 .It Pa /etc/rc.conf.d/nvidia_firmware
 The files that hold the
@@ -255,12 +359,21 @@ See what would be placed, without touching anything:
 .Pp
 Place the firmware of a version that is not the newest one:
 .Pp
-.Dl $ nvidia-firmware detect --version 580.178.04
+.Dl $ nvidia-firmware detect --driver-version 580.178.04
 .Pp
-Write the list of the images as JSON:
+Take the firmware from a directory of your own:
 .Pp
-.Dl $ nvidia-firmware list --libxo json
+.Dl $ nvidia-firmware fetch --from /var/tmp/firmware
+.Pp
+Write the list of the files the package supports as JSON:
+.Pp
+.Dl $ nvidia-firmware list --supported --libxo json
+.Pp
+Write the version of the program:
+.Pp
+.Dl $ nvidia-firmware --version
 .Sh SEE ALSO
+.Xr devd 8 ,
 .Xr kldstat 8 ,
 .Xr rc 8 ,
 .Xr sysctl 8

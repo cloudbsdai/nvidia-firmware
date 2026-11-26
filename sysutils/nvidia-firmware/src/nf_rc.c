@@ -24,6 +24,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -49,9 +50,60 @@ nf_rc_value(const char *value)
 }
 
 /*
+ * One line of the configuration.  The line is read when it names the
+ * setting and when it has a value: the value is told to the caller.
+ */
+static void
+nf_rc_line(char *line, const char *name, int *found)
+{
+	char *p = line;
+	char *value;
+	char *end;
+	size_t namelen = strlen(name);
+	int on;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (strncmp(p, name, namelen) != 0)
+		return;
+	p += namelen;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p != '=')
+		return;
+	p++;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	value = p;
+	if (*value == '"') {
+		value++;
+		end = strchr(value, '"');
+		if (end == NULL)
+			return;
+		*end = '\0';
+	} else {
+		end = value;
+		while (*end != '\0' && *end != ' ' && *end != '\t' &&
+		    *end != '#')
+			end++;
+		*end = '\0';
+	}
+	on = nf_rc_value(value);
+	if (on < 0)
+		return;
+	*found = on;
+}
+
+/*
  * Read one file of the configuration.  Every setting that is in the file
  * is read, and the last one wins: that is what rc.conf does with a name
  * that is given twice.
+ *
+ * A file that is not there is not an error: the setting is simply not
+ * in it.  A file that is there and cannot be read is an error, and so is
+ * a file whose reading fails halfway.  The caller cannot tell that the
+ * setting is off when it cannot read the file, and it has to keep the
+ * images then.
  */
 static int
 nf_rc_scan(const char *path, const char *name, int *found)
@@ -59,49 +111,21 @@ nf_rc_scan(const char *path, const char *name, int *found)
 	char line[1024];
 	FILE *fp;
 
+	if (nf_test_denied(path)) {
+		errno = EACCES;
+		return (-1);
+	}
 	fp = fopen(path, "r");
-	if (fp == NULL)
-		return (0);
-	while (nf_read_line(fp, line, sizeof(line)) == 0) {
-		char *p = line;
-		char *value;
-		size_t namelen = strlen(name);
-		int on;
-
-		while (*p == ' ' || *p == '\t')
-			p++;
-		if (strncmp(p, name, namelen) != 0)
-			continue;
-		p += namelen;
-		while (*p == ' ' || *p == '\t')
-			p++;
-		if (*p != '=')
-			continue;
-		p++;
-		while (*p == ' ' || *p == '\t')
-			p++;
-		value = p;
-		if (*value == '"') {
-			char *end;
-
-			value++;
-			end = strchr(value, '"');
-			if (end == NULL)
-				continue;
-			*end = '\0';
-		} else {
-			char *end;
-
-			end = value;
-			while (*end != '\0' && *end != ' ' && *end != '\t' &&
-			    *end != '#')
-				end++;
-			*end = '\0';
-		}
-		on = nf_rc_value(value);
-		if (on < 0)
-			continue;
-		*found = on;
+	if (fp == NULL) {
+		if (errno == ENOENT)
+			return (0);
+		return (-1);
+	}
+	while (nf_read_line(fp, line, sizeof(line)) == 0)
+		nf_rc_line(line, name, found);
+	if (ferror(fp)) {
+		fclose(fp);
+		return (-1);
 	}
 	fclose(fp);
 	return (0);
@@ -113,13 +137,16 @@ nf_rc_scan(const char *path, const char *name, int *found)
  * which the system reads them.
  */
 int
-nf_rc_no_delete(const char *rcconf, const char *rcconf_d)
+nf_rc_no_delete(const char *rcconf, const char *rcconf_d, int *no_delete)
 {
 	int found = 0;
 
-	if (rcconf != NULL)
-		nf_rc_scan(rcconf, NF_RC_NO_DELETE, &found);
-	if (rcconf_d != NULL)
-		nf_rc_scan(rcconf_d, NF_RC_NO_DELETE, &found);
-	return (found);
+	*no_delete = 0;
+	if (rcconf != NULL && nf_rc_scan(rcconf, NF_RC_NO_DELETE, &found) != 0)
+		return (-1);
+	if (rcconf_d != NULL &&
+	    nf_rc_scan(rcconf_d, NF_RC_NO_DELETE, &found) != 0)
+		return (-1);
+	*no_delete = found;
+	return (0);
 }

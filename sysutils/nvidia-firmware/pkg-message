@@ -1,0 +1,12 @@
+The firmware of the NVIDIA graphics adapters of this machine is placed in
+/boot/firmware/nvidia by the tool.
+
+The tool fetches the file the adapters need from download.nvidia.com and
+checks its size and its hash against the pin table before it puts it in
+place.  A machine that has no network can take the file from a directory
+of its own:
+
+	nvidia-firmware fetch --from /path/to/the/files
+
+The nvidia module has to be unloaded before the tool can take a file away
+from /boot/firmware/nvidia.

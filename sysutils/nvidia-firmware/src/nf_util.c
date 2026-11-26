@@ -199,16 +199,6 @@ nf_file_exists(const char *path)
 	return (stat(path, &st) == 0);
 }
 
-off_t
-nf_file_size(const char *path)
-{
-	struct stat st;
-
-	if (stat(path, &st) != 0)
-		return (-1);
-	return (st.st_size);
-}
-
 void
 nf_sha256_hex(const unsigned char *digest, char *out)
 {
@@ -222,18 +212,63 @@ nf_sha256_hex(const unsigned char *digest, char *out)
 	out[SHA256_DIGEST_LENGTH * 2] = '\0';
 }
 
+/*
+ * The test asks for a file that cannot be read.  The paths of the files
+ * are in the variable NVIDIA_FIRMWARE_TEST_DENY, separated by colons,
+ * and a path that begins with one of them is refused with EACCES.  A
+ * test that runs as root reads a file that has no rights for others, so
+ * the hook is the only way to hold the error path of the tool.
+ *
+ * The hook is in the program that is built for the test suite only: the
+ * installed program ignores the variable in every case.
+ */
 int
-nf_sha256_file(const char *path, char *out)
+nf_test_denied(const char *path)
 {
-	int fd;
-	int error;
+#ifdef NVIDIA_FIRMWARE_TESTING
+	const char *list;
+	const char *p;
 
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		return (-1);
-	error = nf_sha256_fd(fd, out);
-	close(fd);
-	return (error);
+	list = getenv("NVIDIA_FIRMWARE_TEST_DENY");
+	if (list == NULL || *list == '\0')
+		return (0);
+	for (p = list; *p != '\0'; ) {
+		const char *end = strchr(p, ':');
+		size_t n = end != NULL ? (size_t)(end - p) : strlen(p);
+
+		if (n > 0 && strncmp(path, p, n) == 0)
+			return (1);
+		if (end == NULL)
+			break;
+		p = end + 1;
+	}
+#else
+	(void)path;
+#endif
+	return (0);
+}
+
+/*
+ * The count of the digests that were computed.  The test names a file
+ * and the count is written to it, so that the test can tell that a file
+ * is read once and not twice.  The installed program counts nothing.
+ */
+static void
+nf_hash_counted(void)
+{
+#ifdef NVIDIA_FIRMWARE_TESTING
+	const char *path;
+	FILE *fp;
+
+	path = getenv("NVIDIA_FIRMWARE_TEST_HASHLOG");
+	if (path == NULL || *path == '\0')
+		return;
+	fp = fopen(path, "a");
+	if (fp == NULL)
+		return;
+	fprintf(fp, "hash\n");
+	fclose(fp);
+#endif
 }
 
 /*
@@ -249,6 +284,7 @@ nf_sha256_fd(int fd, char *out)
 	char buf[65536];
 	ssize_t n;
 
+	nf_hash_counted();
 	if (lseek(fd, 0, SEEK_SET) == (off_t)-1)
 		return (-1);
 	SHA256_Init(&ctx);
@@ -373,17 +409,27 @@ nf_path_dir(const char *path, char *out, size_t size)
  * that points at some other file.  The file that is written is the file
  * that is hashed, so that the check and the action use the same file.
  *
+ * The hash is only computed when one is wanted: a caller that checks the
+ * file itself asks for no hash here, so that a file of thirty or seventy
+ * megabytes is not read twice.
+ *
+ * The copy stops when more than maxbytes would be written: the limit is
+ * enforced while the file is written and not afterwards, so that a file
+ * that is bigger than the limit cannot fill the disk of the machine.  A
+ * file that is copied is never bigger than the limit.
+ *
  * The copy is not put in place: the caller renames it when every copy of
  * the run has been made, so that a failure in a later copy leaves the
  * directory as it was.  The name of the temporary file is written to tmp.
  */
 int
 nf_stage_copy(const char *src, const char *dir, const char *want_sha,
-    char *tmp, size_t size)
+    off_t maxbytes, char *tmp, size_t size)
 {
 	unsigned char buf[65536];
 	char got[NF_SHA256_LEN];
 	ssize_t n;
+	off_t total;
 	int in;
 	int fd;
 	int error;
@@ -407,9 +453,14 @@ nf_stage_copy(const char *src, const char *dir, const char *want_sha,
 	}
 	error = 0;
 	n = 0;
+	total = 0;
 	while ((n = read(in, buf, sizeof(buf))) > 0) {
 		ssize_t off = 0;
 
+		if (total + (off_t)n > maxbytes) {
+			error = 1;
+			break;
+		}
 		while (off < n) {
 			ssize_t w = write(fd, buf + off, (size_t)(n - off));
 
@@ -421,13 +472,14 @@ nf_stage_copy(const char *src, const char *dir, const char *want_sha,
 		}
 		if (error != 0)
 			break;
+		total += (off_t)n;
 	}
 	if (n < 0)
 		error = 1;
 	close(in);
 	if (error == 0 && fsync(fd) != 0)
 		error = 1;
-	if (error == 0 && nf_sha256_fd(fd, got) != 0)
+	if (error == 0 && want_sha != NULL && nf_sha256_fd(fd, got) != 0)
 		error = 1;
 	close(fd);
 	if (error != 0) {
@@ -474,14 +526,15 @@ nf_discard_staged(const char *tmp)
  * replaced and not written through.
  */
 int
-nf_copy_verify(const char *src, const char *dst, const char *want_sha)
+nf_copy_verify(const char *src, const char *dst, const char *want_sha,
+    off_t maxbytes)
 {
 	char dir[PATH_MAX];
 	char tmp[PATH_MAX];
 
 	if (nf_path_dir(dst, dir, sizeof(dir)) != 0)
 		return (-1);
-	if (nf_stage_copy(src, dir, want_sha, tmp, sizeof(tmp)) != 0)
+	if (nf_stage_copy(src, dir, want_sha, maxbytes, tmp, sizeof(tmp)) != 0)
 		return (-1);
 	if (nf_commit_staged(tmp, dst) != 0) {
 		nf_discard_staged(tmp);
@@ -587,9 +640,58 @@ nf_version_cmp(const char *a, const char *b)
 	}
 }
 
+/*
+ * Read a version of ours: the year, the month and the day.  The three
+ * numbers are read one after the other, and what is left of the string
+ * after them is the suffix of a release of the same day.
+ */
 int
-nf_read_line(FILE *fp, char *buf, size_t size)
+nf_version_parse(const char *s, int *major, int *minor, int *patch)
 {
+	const char *p = s;
+	int *out[3];
+	int i;
+
+	if (s == NULL || *s == '\0')
+		return (-1);
+	out[0] = major;
+	out[1] = minor;
+	out[2] = patch;
+	for (i = 0; i < 3; i++) {
+		long value;
+		char *end;
+
+		if (!isdigit((unsigned char)*p))
+			return (-1);
+		errno = 0;
+		value = strtol(p, &end, 10);
+		if (errno != 0 || end == p || value < 0 || value > 999999)
+			return (-1);
+		*out[i] = (int)value;
+		p = end;
+		if (i < 2) {
+			if (*p != '.')
+				return (-1);
+			p++;
+		}
+	}
+	/* What is left is the suffix of a release of the same day. */
+	if (*p != '\0') {
+		if (*p != '.' && *p != '_')
+			return (-1);
+		p++;
+		if (!isdigit((unsigned char)*p))
+			return (-1);
+		while (isdigit((unsigned char)*p))
+			p++;
+		if (*p != '\0')
+			return (-1);
+	}
+	return (0);
+}
+
+int
+nf_read_line(FILE *fp, char *buf, size_t size){
 	size_t len;
 
 	if (fgets(buf, (int)size, fp) == NULL)
@@ -598,4 +700,59 @@ nf_read_line(FILE *fp, char *buf, size_t size)
 	while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
 		buf[--len] = '\0';
 	return (0);
+}
+
+/*
+ * Add an image to a list of images.  The list grows as it goes and the
+ * new image is a copy of the one that is given.
+ */
+int
+nf_image_add(struct nf_image **images, size_t *count, const char *version,
+    const char *name, const char *sha, off_t size, int forced)
+{
+	struct nf_image *im;
+
+	im = realloc(*images, (*count + 1) * sizeof(*im));
+	if (im == NULL)
+		return (-1);
+	*images = im;
+	im = &im[*count];
+	memset(im, 0, sizeof(*im));
+	snprintf(im->version, sizeof(im->version), "%s", version);
+	snprintf(im->name, sizeof(im->name), "%s", name);
+	snprintf(im->sha, sizeof(im->sha), "%s", sha);
+	im->size = size;
+	im->forced = forced;
+	(*count)++;
+	return (0);
+}
+
+/*
+ * Split a line of a table into its words.  The words are cut out of the
+ * line itself, so the line is changed and the words point into it.  A
+ * line that holds nothing has no words: that is an empty line and a
+ * line that begins with a hash.
+ */
+size_t
+nf_split_fields(char *line, char **fields, size_t max)
+{
+	char *p = line;
+	size_t n = 0;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p == '#' || *p == '\0')
+		return (0);
+	while (n < max) {
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p == '\0')
+			break;
+		fields[n++] = p;
+		while (*p != '\0' && *p != ' ' && *p != '\t')
+			p++;
+		if (*p != '\0')
+			*p++ = '\0';
+	}
+	return (n);
 }

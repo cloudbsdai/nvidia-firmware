@@ -33,6 +33,7 @@ product "RTX 6000D" "RTX 6000D" GB20x
 product "Quadro RTX" "Quadro RTX" TU10x
 product "TITAN RTX" "TITAN RTX" TU10x
 product "GeForce RTX 20" "RTX 20xx" TU10x
+product "GeForce GTX 16" "GTX 16xx" TU10x
 product "RTX 3050 A" "RTX 3050 A" AD10x
 product "GeForce RTX 30" "RTX 30xx" GA10x
 product "RTX A" "RTX A-series" GA10x
@@ -41,9 +42,11 @@ product "GeForce RTX 50" "RTX 50xx" GB20x
 #
 # The families are the ones NVIDIA names in its firmware:
 #
-#	TU10x	Turing, the RTX 20 series and the Quadro RTX cards
-#	GA100	Ampere for the datacentre (A100, A30, A800)
-#	GA10x	Ampere for the rest (the RTX 30 series, the RTX A series)
+#	TU10x	Turing, the RTX 20 series, the GTX 16 series and the
+#		Quadro RTX cards
+#	GA100	the datacentre family (A100, A30, A800)
+#	GA10x	the consumer and workstation family (the RTX 30 series and
+#		the RTX A series)
 #	AD10x	Ada (the RTX 40 series, the RTX Ada workstation cards)
 #	GH100	Hopper (H100, H200, H800, GH200)
 #	GB20x	Blackwell (the RTX 50 series, the RTX PRO Blackwell cards)

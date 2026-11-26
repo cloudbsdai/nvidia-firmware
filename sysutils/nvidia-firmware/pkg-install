@@ -1,8 +1,7 @@
 #!/bin/sh
 #
 # Place the firmware the graphics adapters of this machine need.  The
-# command succeeds when the machine has no NVIDIA adapter at all; every
-# other failure is a failure of the installation.
+# command succeeds when the machine has no NVIDIA adapter at all.
 #
 # pkg(8) runs this script twice: once before the files of the package are
 # put in place and once after they are.  The first argument is the name
@@ -12,6 +11,13 @@
 #
 # The prefix of the package is PKG_PREFIX.  PREFIX is only used when the
 # script is run by hand.
+#
+# The firmware is not in the package: the tool fetches it when it is
+# needed.  A machine that has no network cannot fetch it, and the
+# installation of the package must not be undone because of that: the
+# package is good without the firmware, and the tool verifies every file
+# it takes before it puts it in place.  The script therefore says what
+# to do and does not fail the installation.
 
 PKG_PREFIX=${PKG_PREFIX:-${PREFIX:-/usr/local}}
 TOOL=${PKG_PREFIX}/sbin/nvidia-firmware
@@ -30,11 +36,19 @@ if [ ! -x "${TOOL}" ]; then
 	exit 1
 fi
 
-if ! "${TOOL}" detect; then
-	echo "nvidia-firmware detect failed; the firmware the adapters of this" \
+# The fetch only puts files in place and never takes one away, so it may
+# run while the nvidia module is loaded: a file that is not there yet is
+# not the firmware of the driver that is running.
+if ! "${TOOL}" fetch; then
+	echo "nvidia-firmware fetch failed; the firmware the adapters of this" \
 	    "machine need was not placed." >&2
-	echo "Run \"${TOOL} detect\" by hand to see why." >&2
-	exit 1
+	echo "The package is installed anyway: it holds the tool and the pin" \
+	    "table, and the tool checks every file it takes before it puts" \
+	    "it in place." >&2
+	echo "Run \"${TOOL} fetch\" by hand to see why, and" \
+	    "\"${TOOL} fetch --from DIR\" to take the files from a directory" \
+	    "of your own." >&2
+	exit 0
 fi
 
 exit 0

@@ -33,7 +33,13 @@
  * Read the nvidia_firmware_no_delete setting.  The files are the ones
  * rc(8) reads: /etc/rc.conf and /etc/rc.conf.d/nvidia_firmware.  Only
  * simple name="value" lines are understood.
+ *
+ * The setting is written to *no_delete.  A file that is not there is not
+ * a setting; a file that cannot be read is an error: the caller has to
+ * keep the images then, because it cannot tell that it may take them
+ * away.  The return value is 0 when the setting was read and -1 when it
+ * could not be.
  */
-int		nf_rc_no_delete(const char *, const char *);
+int		nf_rc_no_delete(const char *, const char *, int *);
 
 #endif /* NF_RC_H */

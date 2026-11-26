@@ -4,9 +4,13 @@
 #
 #	<version> <image> <size> <sha256>
 #
-# The port verifies every extracted image against this table at build time and
-# fails the build when a size or a hash does not match.  Do not edit a hash
-# here without re-verifying the image against NVIDIA's published sha256sum.
+# The firmware is never shipped with the package.  The tool fetches the
+# file the graphics adapters of the machine need and checks its size and
+# its hash against this table before it puts it in place: a file that
+# does not match is never placed.
+#
+# Do not edit a hash here without re-verifying the image against the
+# sha256sum that NVIDIA publishes for the release.
 #
 580.178.04	gsp_tu10x.bin	30483544	369602eb3c63a398c0532052317938389a3d29e0f5660179dd15b47cda177df2
 580.178.04	gsp_ga10x.bin	75028464	3b89a63f2e7a0b496113d6e727564e902456fd81017b21d35d3eaba76b24dab2

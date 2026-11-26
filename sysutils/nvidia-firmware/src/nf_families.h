@@ -120,6 +120,13 @@ int		nf_families_attaches(const struct nf_families *, const char *);
  * The series of products a chip belongs to, or NULL when the name of the
  * chip names no product of the table.
  */
-const char	*nf_families_series(const struct nf_families *, const char *);
+
+/*
+ * The lines of products a family is in.  The rules of the table say which
+ * line of products a chip belongs to and which family it is in, so the
+ * lines of a family are the lines of the rules that name it.
+ */
+int		nf_families_series_of(const struct nf_families *,
+		    const char *, struct nf_strlist *);
 
 #endif /* NF_FAMILIES_H */
