@@ -819,6 +819,47 @@ test_module_guard() {
 }
 
 # --------------------------------------------------------------- test 26
+# The fetch may run while the nvidia module is loaded: it only puts
+# files in place that are not there yet, and a file that is not there
+# yet is not the firmware of the driver that runs.  The detect takes
+# files away and refuses while the module is loaded.
+test_fetch_while_module_loaded() {
+	new_root
+	printf '0x2204\n' > "${PCIFILE}"
+	out=$(NVIDIA_FIRMWARE_TEST_KLD=loaded run_tool fetch 2>&1)
+	rc=$?
+	if [ ${rc} -ne 0 ]; then
+		fail "fetch loaded: the fetch failed while the module is loaded" \
+		    "exit ${rc}" "${out}"
+		return
+	fi
+	if ! exists "${BOOT}/gsp_ga10x.bin"; then
+		fail "fetch loaded: the file was not placed" "${out}"
+		return
+	fi
+	if ! grep -q 'gsp_ga10x.bin' "${BOOT}/SHA256SUMS"; then
+		fail "fetch loaded: the inventory does not name the file" "${out}"
+		return
+	fi
+	# The detect still refuses while the module is loaded, and it
+	# changes nothing.
+	before=$(ls -1 "${BOOT}")
+	out=$(NVIDIA_FIRMWARE_TEST_KLD=loaded run_tool detect 2>&1)
+	rc=$?
+	after=$(ls -1 "${BOOT}")
+	if [ ${rc} -eq 0 ]; then
+		fail "fetch loaded: the detect did not fail while the module is loaded" \
+		    "${out}"
+		return
+	fi
+	if [ "${before}" != "${after}" ]; then
+		fail "fetch loaded: the boot directory changed" "${before}" "${after}"
+		return
+	fi
+	ok "the fetch places the file while the module is loaded and the detect refuses"
+}
+
+# --------------------------------------------------------------- test 26
 # An image the cards need but that the mirror does not hold is an error
 # and is named; the boot directory is left alone.
 test_missing_required_image() {
@@ -959,7 +1000,7 @@ test_pkg_install() {
 	mkdir -p "${ROOT}/prefix/sbin"
 	cat > "${ROOT}/prefix/sbin/nvidia-firmware" <<-'STUB'
 	#!/bin/sh
-	echo "the firmware was not placed" >&2
+	echo "stub: the fetch failed" >&2
 	exit 1
 	STUB
 	chmod +x "${ROOT}/prefix/sbin/nvidia-firmware"
@@ -975,6 +1016,16 @@ test_pkg_install() {
 	*"--from"*) ;;
 	*)
 		fail "pkg-install: the way to fetch the files later is not told" \
+		    "${out}"
+		return
+		;;
+	esac
+	# The script says that the firmware was not placed: the copy of
+	# the installation must not promise that it was.
+	case "${out}" in
+	*"not placed"*) ;;
+	*)
+		fail "pkg-install: the script does not say that the firmware was not placed" \
 		    "${out}"
 		return
 		;;
@@ -2986,6 +3037,7 @@ test_detect_symlink
 test_temp_names
 test_inventory_traversal
 test_module_guard
+test_fetch_while_module_loaded
 test_missing_required_image
 test_verify_changed_file
 test_empty_family_table

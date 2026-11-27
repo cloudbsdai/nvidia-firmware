@@ -47,7 +47,7 @@ PATHS_DATA=	nf_paths.h
 # compiled with it.
 FAMILIES_OBJS=	${SRCS:S/.c$/.o/} ${SRCS:S/.c$/.pieo/}
 
-CLEANFILES+=	${FAMILIES_DATA} ${PATHS_DATA}
+CLEANFILES+=	${FAMILIES_DATA} ${PATHS_DATA} ${VERSION_DATA}
 
 CFLAGS+=	-Wall -Wextra -Werror
 NF_DATA_DIR?=	${PREFIX}/share/nvidia-firmware
@@ -61,8 +61,18 @@ CFLAGS+=	-DNF_BOOT_DIR='"/boot/firmware/nvidia"'
 # gives its own DISTVERSION to the build, so that the program and the
 # package always carry the same version.
 #
+# The version is a value of the caller and it is not written into the
+# text of a command of the compiler: a version that holds a quote or a
+# semicolon would end the argument of the compiler and would be read as
+# shell syntax.  The version is read from the environment by
+# embed-version.sh, which writes it into a header with the escaping that
+# a C string needs, and the compiler is given the header.  A version that
+# is not a date version is refused: the build stops instead of writing a
+# header that holds a version the program cannot read.
 NF_VERSION?=	0.0.0
-CFLAGS+=	-DNF_VERSION='"${NF_VERSION}"'
+export NF_VERSION=${NF_VERSION}
+VERSION_DATA=	nf_version.h
+CFLAGS+=	-include ${VERSION_DATA}
 LDADD=		-lxo -lmd
 
 # The test flavour of the program honours the environment hooks that
@@ -80,9 +90,12 @@ ${FAMILIES_DATA}: ${FAMILIES} ${.CURDIR}/embed-families.sh
 ${PATHS_DATA}: ${.CURDIR}/embed-paths.sh
 	${SH} ${.CURDIR}/embed-paths.sh ${PATHS_DATA}
 
-${FAMILIES_OBJS}: ${FAMILIES_DATA} ${PATHS_DATA}
+${VERSION_DATA}: ${.CURDIR}/embed-version.sh
+	${SH} ${.CURDIR}/embed-version.sh ${VERSION_DATA}
 
-${TESTPROG}: ${SRCS} ${HDRS} ${FAMILIES_DATA} ${PATHS_DATA}
+${FAMILIES_OBJS}: ${FAMILIES_DATA} ${PATHS_DATA} ${VERSION_DATA}
+
+${TESTPROG}: ${SRCS} ${HDRS} ${FAMILIES_DATA} ${PATHS_DATA} ${VERSION_DATA}
 	${CC} ${TESTCFLAGS} ${CPPFLAGS} -o ${TESTPROG} ${SRCS} ${LDFLAGS} ${LDADD}
 
 test: ${TESTPROG}

@@ -47,7 +47,19 @@
 # two makes spell the export directive differently: GNU make and bmake
 # both take "export NAME=VALUE", but only GNU make takes "export NAME".
 # The name of its own also keeps the value that is exported out of the
-# way of the value that is read.
+# way of the value that is read.  The purpose is the one exception: it is
+# exported under its own name, so that the value that is checked and the
+# value that is printed are one value and not two.
+#
+# The purpose is handed over under two names, and both are checked: the
+# name the recipes use and a copy of it under a name of its own.  The two
+# makes spell the export differently: GNU make exports the value of the
+# variable as it is when the recipe runs, and bmake exports the value
+# that the export directive holds.  The copy is written as a reference to
+# the value, so that both makes read it again when the recipe runs.  One
+# of the two copies is therefore always the value that the recipes
+# print, and a caller that sets one of the two names on the command line
+# cannot make the check see a word that the recipes do not print.
 #
 # The purpose is the one value that is written into the text of a recipe,
 # and the contract asks for it by name: the commit hook reads the text of
@@ -58,12 +70,16 @@
 #
 # A value that is written into the text of a recipe is read as code by
 # the shell, so the value of the caller is checked before it is written
-# there: purpose.sh reads the purpose from the environment, where the
+# there.  The check reads the purpose from the environment, where the
 # Makefile hands it over, and refuses anything that is not a word of the
 # list.  The check runs before the recipe that prints the purpose, so a
 # value that is not a word of the list never reaches a command.  A caller
 # who sets REPO_PURPOSE on the command line has that word checked like
 # every other one.
+#
+# The word that is printed is therefore a word of the list, and it is the
+# word that was checked: a caller cannot have one word checked and
+# another one printed.
 #
 # The port is built by bmake.  The values the port needs are given to it
 # through the environment as well: env(1) takes them as arguments, so
@@ -80,7 +96,19 @@
 
 # The purpose of this repository.  The commit hook reads it, "make
 # purpose" prints it, and the first line of "make help" is it.
-REPO_PURPOSE = tool
+#
+# The value is exported under its own name: the value that purpose.sh
+# checks and the value that the recipes print are one value and not two,
+# so a caller cannot have one word checked and another word printed.  The
+# export is written without spaces around the "=" because bmake reads
+# "export NAME = value" as the name of another variable.
+export REPO_PURPOSE=tool
+
+# The copy of the purpose that the check reads.  It is written as a
+# reference to the value and not as a word of its own, so that both
+# makes read it again when the recipe runs: the value that is checked is
+# then the value that the recipes print, whichever make is running.
+export NF_REPO_PURPOSE=${REPO_PURPOSE}
 
 # The port this tree wraps, and the ports tree that holds the framework
 # (the Mk directory and bsd.port.mk).
@@ -108,7 +136,6 @@ ASSUME_YES = 0
 JSON ?= 0
 
 # The values the recipes read, in the environment.  See the note above.
-export NF_REPO_PURPOSE=${REPO_PURPOSE}
 export NF_PORTDIR=${PORTDIR}
 export NF_PORTSDIR=${PORTSDIR}
 export NF_DISTDIR=${DISTDIR}
@@ -124,8 +151,7 @@ export NF_JSON=${JSON}
 # is written into the text of the recipe by name: see the note above about
 # the purpose and the contract.  The purpose is checked before it is
 # printed: a value that is not a word of the list stops the build.
-help:
-	@sh purpose.sh >/dev/null
+help: purpose-check
 	@printf '%s\n' \
 		"purpose: $(REPO_PURPOSE)" \
 		"Targets (the same names on every OS):" \
@@ -149,17 +175,23 @@ help:
 		"" \
 		"Run make from the directory that holds this Makefile."
 
-.PHONY: help purpose preflight deps install-deps configure build test install
+.PHONY: help purpose purpose-check preflight deps install-deps configure \
+build test install
 
-purpose:
-	@sh purpose.sh >/dev/null
+purpose: purpose-check
 	@printf '%s\n' "$(REPO_PURPOSE)"
+
+# The check of the purpose.  It reads the purpose from the environment,
+# where the Makefile hands it over, and it refuses a purpose that is not
+# a word of the list.  It is a prerequisite of the targets that use the
+# purpose, so it runs before the recipe that prints the purpose.
+purpose-check:
+	@sh purpose.sh >/dev/null
 
 # The preflight says what is missing before anything is built.  JSON=1
 # writes the contract that machines read: a metadata header, an indexed
 # status array, the items, and the purpose.
-preflight:
-	@sh purpose.sh >/dev/null
+preflight: purpose-check
 	@if [ "$$NF_JSON" = 1 ]; then \
 		sh preflight.sh --json --purpose "$$NF_REPO_PURPOSE" \
 		    --ports-dir "$$NF_PORTSDIR" --port-dir "$$NF_PORTDIR" \
@@ -173,8 +205,7 @@ preflight:
 # "deps" and "install-deps" are the same target on every platform.  The
 # prerequisites are installed with the package manager of the OS; the
 # question comes first unless the YES switch is set.
-deps install-deps:
-	@sh purpose.sh >/dev/null
+deps install-deps: purpose-check
 	@if sh preflight.sh --purpose "$$NF_REPO_PURPOSE" \
 	    --ports-dir "$$NF_PORTSDIR" --port-dir "$$NF_PORTDIR" \
 	    --dist-dir "$$NF_DISTDIR" >/dev/null 2>&1; then \

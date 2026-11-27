@@ -12,9 +12,14 @@ not match is never placed, and nothing of it is left behind.
 
     pkg install nvidia-firmware
 
-The installation places the firmware that the adapters of the machine need.
-The rule of `devd` places it again when a graphics adapter is attached to
-the machine.
+The installation fetches the firmware that the adapters of the machine
+need.  A machine that has no network cannot fetch it: the package is
+installed anyway, and the firmware is fetched later with
+`nvidia-firmware fetch`, or taken from a directory of your own with
+`nvidia-firmware fetch --from DIR`.  `nvidia-firmware status` says what
+is in `/boot/firmware/nvidia`.
+The rule of `devd` fetches it again when a graphics adapter is attached
+to the machine.
 
 The nvidia module has to be unloaded before the tool can take a file away
 from `/boot/firmware/nvidia`.

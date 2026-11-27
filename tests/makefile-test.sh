@@ -35,6 +35,7 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORT=${ROOT}/sysutils/nvidia-firmware
+SRC=${PORT}/src
 
 WORK=$(mktemp -d "${TMPDIR:-/var/tmp}/nvidia-firmware-makefile-test.XXXXXX") || {
 	printf 'Bail out! cannot make a workspace for the test\n' >&2
@@ -75,6 +76,20 @@ done
 if [ -z "${MAKE}" ]; then
 	printf 'Bail out! no make was found on this host\n'
 	exit 1
+fi
+
+# The makes of this host, one after the other.  The cases that hold the
+# purpose run under every one of them: the two makes spell the export of
+# the purpose differently, and a case that runs under one make alone
+# would not see the other one.
+MAKES=
+for candidate in gmake bmake; do
+	if command -v "${candidate}" >/dev/null 2>&1; then
+		MAKES="${MAKES} ${candidate}"
+	fi
+done
+if [ -z "${MAKES}" ] && command -v make >/dev/null 2>&1; then
+	MAKES=" make"
 fi
 
 rm -rf "${WORK}"
@@ -156,7 +171,7 @@ MARKER=${WORK}/marker
 new_case
 help_rec=$(recipe_of help)
 purpose_rec=$(recipe_of purpose)
-declared=$(sed -n 's/^REPO_PURPOSE[ \t]*=[ \t]*//p' "${ROOT}/Makefile" | head -1)
+declared=$(sed -n 's/^\(export[ \t][ \t]*\)\{0,1\}REPO_PURPOSE[ \t]*=[ \t]*//p' "${ROOT}/Makefile" | head -1)
 if ! printf '%s' "${help_rec}" | grep -qF 'purpose: $(REPO_PURPOSE)'; then
 	fail "purpose: the help recipe does not print the purpose by name" \
 	    "${help_rec}"
@@ -200,6 +215,9 @@ fi
 # that the install does not stop at the question of the root password.
 FAKEBIN=${WORK}/bin
 mkdir -p "${FAKEBIN}"
+# The compiler of the test lives in a directory of its own: the fake bmake
+# of the test above must not be found when the build of the tool runs.
+CCBIN=${WORK}/ccbin
 cat > "${FAKEBIN}/bmake" <<-'STUB'
 	#!/bin/sh
 	if [ "$1" = "-V" ] && [ "$2" = "MAKE_VERSION" ]; then
@@ -288,35 +306,209 @@ fi
 # The purpose is a word out of a fixed list and it is checked before it
 # is written into the text of a command: a caller that sets a purpose of
 # its own must not get the text of the recipe to be run.
-new_case
+#
+# The case runs under every make of the host: the two makes spell the
+# export of the purpose differently, and a case that runs under one make
+# alone would not see the other one.
 payload='x"; touch '"${MARKER}"'; #'
-out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${MAKE}" purpose \
-    REPO_PURPOSE="${payload}" 2>&1)
-rc=$?
-if [ -f "${MARKER}" ]; then
-	fail "purpose: the purpose of the caller was run" "${out}"
-elif [ ${rc} -eq 0 ]; then
-	fail "purpose: a purpose that is not a word of the list was accepted" \
-	    "${out}"
-else
-	ok "a purpose that is not a word of the list stops the build"
-fi
+for m in ${MAKES}; do
+	new_case
+	out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${m}" purpose \
+	    REPO_PURPOSE="${payload}" 2>&1)
+	rc=$?
+	if [ -f "${MARKER}" ]; then
+		fail "purpose: the purpose of the caller was run (${m})" "${out}"
+		rm -f "${MARKER}"
+	elif [ ${rc} -eq 0 ]; then
+		fail "purpose: a purpose that is not a word of the list was accepted (${m})" \
+		    "${out}"
+	else
+		ok "a purpose that is not a word of the list stops the build (${m})"
+	fi
+done
 
 # ---------------------------------------------------------------- test 8
 # The same for the help: the first line of the help holds the purpose.
+for m in ${MAKES}; do
+	new_case
+	out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${m}" help \
+	    REPO_PURPOSE="${payload}" 2>&1)
+	rc=$?
+	if [ -f "${MARKER}" ]; then
+		fail "help: the purpose of the caller was run (${m})" "${out}"
+		rm -f "${MARKER}"
+	elif [ ${rc} -eq 0 ]; then
+		fail "help: a purpose that is not a word of the list was accepted (${m})" \
+		    "${out}"
+	else
+		ok "the help refuses a purpose that is not a word of the list (${m})"
+	fi
+done
+
+# ---------------------------------------------------------------- test 9
+# The value that is checked has to be the value that the recipe prints.
+# The Makefile hands the purpose over under two names: the name that the
+# recipe uses and a copy of it under a name of its own.  A caller that
+# sets the copy to a word of the list and the value that the recipe
+# prints to something else has one value checked and another one
+# printed: the check has to refuse that as well, and nothing may run.
+for m in ${MAKES}; do
+	new_case
+	out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${m}" purpose \
+	    REPO_PURPOSE="${payload}" NF_REPO_PURPOSE=tool 2>&1)
+	rc=$?
+	if [ -f "${MARKER}" ]; then
+		fail "purpose: the copy of the purpose was forged (${m})" "${out}"
+		rm -f "${MARKER}"
+	elif [ ${rc} -eq 0 ]; then
+		fail "purpose: the forged copy of the purpose was accepted (${m})" \
+		    "${out}"
+	else
+		ok "the check refuses a purpose that the copy does not name (${m})"
+	fi
+done
+
+# --------------------------------------------------------------- test 10
+# A purpose that is a word of the list is used as it is: the build does
+# not stop, and the word that is printed is the word that was asked for.
+for m in ${MAKES}; do
+	new_case
+	out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${m}" purpose \
+	    REPO_PURPOSE=library 2>&1)
+	rc=$?
+	if [ ${rc} -ne 0 ]; then
+		fail "purpose: a purpose of the list was refused (${m})" "${out}"
+	elif [ "${out}" != "library" ]; then
+		fail "purpose: the purpose that is printed is not the one that was asked for (${m})" \
+		    "${out}"
+	else
+		ok "a purpose of the list is printed as it is (${m})"
+	fi
+done
+
+# --------------------------------------------------------------- test 11
+# The version of the program is a value of the caller and it is not
+# written into the text of a command of the compiler: the generator
+# reads it from the environment, refuses a version that is not a date
+# version, and writes no header for it.
 new_case
-out=$(cd "${ROOT}" && env -u MAKEFLAGS -u MAKELEVEL "${MAKE}" help \
-    REPO_PURPOSE="${payload}" 2>&1)
+GEN=${SRC}/embed-version.sh
+HDR=${WORK}/nf_version.h
+rm -f "${HDR}"
+out=$(NF_VERSION="x'; touch ${MARKER}; #" sh "${GEN}" "${HDR}" 2>&1)
 rc=$?
 if [ -f "${MARKER}" ]; then
-	fail "help: the purpose of the caller was run" "${out}"
+	fail "version: the version of the caller was run" "${out}"
+	rm -f "${MARKER}"
 elif [ ${rc} -eq 0 ]; then
-	fail "help: a purpose that is not a word of the list was accepted" \
-	    "${out}"
+	fail "version: a version that is not a date version was accepted" "${out}"
+elif [ -f "${HDR}" ]; then
+	fail "version: a header was written for a version that is not one" \
+	    "$(cat "${HDR}")"
 else
-	ok "the help refuses a purpose that is not a word of the list"
+	ok "the generator refuses a version that is not a date version"
 fi
 
+# --------------------------------------------------------------- test 12
+# A version that is a date version is written into the header, and the
+# header holds the version that was asked for.
+new_case
+rm -f "${HDR}"
+out=$(NF_VERSION=2026.11.26 sh "${GEN}" "${HDR}" 2>&1)
+rc=$?
+if [ ${rc} -ne 0 ]; then
+	fail "version: a date version was refused" "exit ${rc}" "${out}"
+elif ! grep -q '#define NF_VERSION "2026.11.26"' "${HDR}"; then
+	fail "version: the header does not hold the version" \
+	    "$(cat "${HDR}")"
+else
+	ok "the generator writes the date version into the header"
+fi
+
+# --------------------------------------------------------------- test 13
+# The build of the tool: the version of the caller never reaches the text
+# of a command of the compiler.  The build runs in a copy of the sources
+# with a compiler of the test in place of the real one, so that the
+# version of the caller would be run by the compiler if it were written
+# into the text of the command.
+new_case
+skip=
+if ! command -v bmake >/dev/null 2>&1; then
+	skip="bmake is not there"
+else
+	rm -rf "${WORK}/src"
+	mkdir -p "${WORK}/src"
+	cp -R "${SRC}/." "${WORK}/src/"
+	rm -f "${WORK}/src"/*.o "${WORK}/src"/*.pieo "${WORK}/src"/.depend* \
+	    "${WORK}/src"/nvidia-firmware "${WORK}/src"/nvidia-firmware-test \
+	    "${WORK}/src"/nvidia-firmware.8.gz "${WORK}/src"/nf_paths.h \
+	    "${WORK}/src"/nf_families_data.h "${WORK}/src"/nf_version.h
+	# The compiler of the test: it writes down that it was called and
+	# it leaves an empty file where the compiler would leave the
+	# object.
+	mkdir -p "${CCBIN}"
+	cat > "${CCBIN}/cc" <<-'STUB'
+	#!/bin/sh
+	printf '%s\n' "$*" >> "${NF_MAKE_TEST_LOG}"
+	out=
+	prev=
+	for a in "$@"; do
+		if [ "${prev}" = "-o" ]; then
+			out=${a}
+		fi
+		prev=${a}
+	done
+	if [ -n "${out}" ]; then
+		: > "${out}"
+	fi
+	exit 0
+	STUB
+	chmod +x "${CCBIN}/cc"
+	LOG2=${WORK}/cc.log
+	: > "${LOG2}"
+	if ! (cd "${WORK}/src" && env -u MAKEFLAGS -u MAKELEVEL \
+	    bmake -n all >/dev/null 2>&1); then
+		skip="the Makefile of the tool cannot be read by bmake"
+	fi
+fi
+if [ -n "${skip}" ]; then
+	printf '# %s; the build of the tool is not tested\n' "${skip}"
+else
+	out=$(cd "${WORK}/src" && env -u MAKEFLAGS -u MAKELEVEL \
+	    PATH="${CCBIN}:${PATH}" NF_MAKE_TEST_LOG="${LOG2}" \
+	    COMPILER_TYPE=clang MK_DEBUG_FILES=no \
+	    bmake "NF_VERSION=x'; touch ${MARKER}; #" all 2>&1)
+	rc=$?
+	if [ -f "${MARKER}" ]; then
+		fail "version: the version of the caller was run by the build" \
+		    "${out}"
+		rm -f "${MARKER}"
+	elif [ ${rc} -eq 0 ]; then
+		fail "version: the build took a version that is not a date version" \
+		    "${out}"
+	else
+		ok "the build refuses a version that is not a date version"
+	fi
+	# The same build with a version that is a date version: the
+	# compiler is called and the header holds the version.
+	new_case
+	out=$(cd "${WORK}/src" && env -u MAKEFLAGS -u MAKELEVEL \
+	    PATH="${CCBIN}:${PATH}" NF_MAKE_TEST_LOG="${LOG2}" \
+	    COMPILER_TYPE=clang MK_DEBUG_FILES=no \
+	    bmake NF_VERSION=2026.11.26 all 2>&1)
+	rc=$?
+	if [ ${rc} -ne 0 ]; then
+		fail "version: the build of the tool failed" "exit ${rc}" "${out}"
+	elif [ ! -s "${LOG2}" ]; then
+		fail "version: the compiler was not called" "${out}"
+	elif ! grep -q '#define NF_VERSION "2026.11.26"' \
+	    "${WORK}/src/nf_version.h" 2>/dev/null; then
+		fail "version: the header of the build does not hold the version" \
+		    "${out}"
+	else
+		ok "the build writes the version of the package into the header"
+	fi
+fi
 printf '1..%d\n' "${CASE}"
 printf '# passed %d, failed %d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ] || exit 1

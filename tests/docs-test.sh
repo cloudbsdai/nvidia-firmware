@@ -433,6 +433,48 @@ else
 	fi
 fi
 
+# --------------------------------------------------------------- test 14
+# The copy of the installation does not promise that the firmware was
+# placed: the installation succeeds on a machine that has no network and
+# no firmware is placed there.  The copy has to say what the tool does
+# and how the firmware is fetched later.
+new_case
+offenders=
+for file in "${ROOT}/README.md" "${PORT}/pkg-message" "${PORT}/pkg-descr"; do
+	[ -f "${file}" ] || continue
+	found=$(grep -nE 'installation places|places the firmware|is placed in /boot/firmware/nvidia' \
+	    "${file}" 2>/dev/null)
+	[ -n "${found}" ] || continue
+	offenders="${offenders}${file}:
+${found}
+"
+done
+if [ -n "${offenders}" ]; then
+	fail "install copy: the copy promises that the firmware was placed" \
+	    "${offenders}"
+else
+	ok "the copy does not promise that the firmware was placed"
+fi
+
+# --------------------------------------------------------------- test 15
+# The copy tells how the firmware is fetched later: the command that
+# fetches it and the command that says what is in place.
+new_case
+missing=
+for file in "${ROOT}/README.md" "${PORT}/pkg-message"; do
+	[ -f "${file}" ] || continue
+	grep -q 'nvidia-firmware fetch' "${file}" || \
+	    missing="${missing} ${file}:fetch"
+	grep -q 'nvidia-firmware status' "${file}" || \
+	    missing="${missing} ${file}:status"
+done
+if [ -n "${missing}" ]; then
+	fail "install copy: the copy does not tell how to fetch the firmware" \
+	    "${missing}"
+else
+	ok "the copy tells how the firmware is fetched later"
+fi
+
 printf '1..%d\n' "${CASE}"
 printf '# passed %d, failed %d\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ] || exit 1

@@ -423,25 +423,53 @@ nf_guard_failed(void)
  * seen.  The state is read again before every change of the boot
  * directory, which makes the window as small as the tool can make it,
  * and the page of the tool says what the window is.
+ *
+ * The state of the module has to be known in every case: a run that
+ * cannot tell whether the driver uses the firmware does not touch it.
+ * A module that is loaded is refused when the change takes a file away
+ * or replaces one, because the driver may be using the file that is
+ * changed.  The fetch only puts files in place that are not there yet,
+ * and a file that is not there yet is not the firmware of the driver
+ * that runs, so the fetch allows a module that is loaded.
  */
 static int
-nf_guard_still_unloaded(struct nf_guard *g)
+nf_guard_recheck(struct nf_guard *g, int allow_loaded)
 {
 	int state;
 
 	state = nf_nvidia_loaded();
-	if (state == NF_KLD_LOADED) {
-		nf_error("the nvidia module was loaded while the tool was "
-		    "working; nothing was changed");
-		return (0);
-	}
 	if (state == NF_KLD_UNKNOWN) {
 		nf_error("cannot tell whether the nvidia module is loaded; "
 		    "kldstat(8) has to be there and has to work");
 		return (0);
 	}
+	if (state == NF_KLD_LOADED && !allow_loaded) {
+		nf_error("the nvidia module was loaded while the tool was "
+		    "working; nothing was changed");
+		return (0);
+	}
 	g->state = state;
 	return (1);
+}
+
+/*
+ * The change takes a file away or replaces one: the module must not be
+ * loaded.
+ */
+static int
+nf_guard_still_unloaded(struct nf_guard *g)
+{
+	return (nf_guard_recheck(g, 0));
+}
+
+/*
+ * The change only puts a file in place that is not there yet: the module
+ * may be loaded.
+ */
+static int
+nf_guard_still_placeable(struct nf_guard *g)
+{
+	return (nf_guard_recheck(g, 1));
 }
 
 /*
@@ -1302,10 +1330,18 @@ nf_detect_execute(struct nf_detect *d, struct nf_config *cfg,
 		/*
 		 * The state of the module is read again right before the
 		 * boot directory is changed: a driver that came up in the
-		 * meantime may be using the files that are there.
+		 * meantime may be using the files that are there.  The
+		 * fetch only puts files in place that are not there yet,
+		 * so it allows a module that is loaded; the detect takes
+		 * files away and does not.
 		 */
-		if (!nf_guard_still_unloaded(guard))
-			return (-1);
+		if (d->prune) {
+			if (!nf_guard_still_unloaded(guard))
+				return (-1);
+		} else {
+			if (!nf_guard_still_placeable(guard))
+				return (-1);
+		}
 		if (nf_images_commit(&d->boot, &d->fetch, 0, &d->placed) != 0) {
 			/*
 			 * The copies that were made are recorded, so that the

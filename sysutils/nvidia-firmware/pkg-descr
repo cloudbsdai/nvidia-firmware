@@ -1,3 +1,4 @@
-Fetch the NVIDIA GSP firmware the graphics adapters of the machine need
-and place it in /boot/firmware/nvidia; every file is checked against the
-pin table before it is put in place
+Provide the tool that fetches the NVIDIA GSP firmware the graphics
+adapters of the machine need and places it in /boot/firmware/nvidia; the
+firmware is fetched when it is needed, and every file is checked against
+the pin table before it is put in place
