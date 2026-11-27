@@ -10,7 +10,15 @@ not match is never placed, and nothing of it is left behind.
 
 ## Installing
 
-    pkg install nvidia-firmware
+The package is in the checkout of this repository.  Install it with the
+ports framework of FreeBSD, from the directory of the port:
+
+    cd sysutils/nvidia-firmware
+    make install
+
+The installation needs the rights of root: run it as root, or with
+`doas` (`doas make install`).  `doas` asks for your own password, and
+only when the rule of `/usr/local/etc/doas.conf` asks for it.
 
 The installation fetches the firmware that the adapters of the machine
 need.  A machine that has no network cannot fetch it: the package is
@@ -61,8 +69,10 @@ per driver version.
 
 ## The firmware the package supports
 
-The table is made of the pin table of the package and of the table of the
-chip families; it is generated from them and it is checked against them.
+Every file of the table below is fetched from NVIDIA and is checked
+against the pin table of the package before it is placed.  The table
+names the driver release every file belongs to, its size, its hash and
+the chips it serves.
 
 <!-- BEGIN SUPPORTED FIRMWARE -->
 | Driver release | File | Size (bytes) | sha256 | GPU families |
@@ -93,3 +103,39 @@ The file of a family is named after it: `gsp_tu10x.bin` is the file of the
 `TU10x` family, and `ucodes_ga10x.bin` holds the microcode of the `GA10x`
 family.  The driver of the native FreeBSD stack reaches the RTX 30 series
 and newer today.
+
+## Removing it
+
+The nvidia module has to be unloaded before the firmware can be taken
+away.  `kldstat -m nvidia` says whether the module is loaded.  When it
+is:
+
+    doas kldunload nvidia
+
+A module that is busy refuses to be unloaded: stop the graphical session
+that uses it first.
+
+Then the package goes, and the files of `/boot/firmware/nvidia` that the
+tool placed go with it:
+
+    doas pkg delete nvidia-firmware
+
+Every command of this section needs the rights of root: run them as
+root, or with `doas`.  A file that the tool did not place belongs to
+somebody else and is left where it is.
+
+`nvidia-firmware clean` takes the same files away and leaves the package
+where it is.  It needs the rights of root as well, and the module has to
+be unloaded too.
+
+## Licence
+
+The firmware is NVIDIA's and the NVIDIA Driver License Agreement covers
+it.  The package installs the agreement with it, in
+`/usr/local/share/licenses/nvidia-firmware-*/NVIDIA`.
+`pkg info -l nvidia-firmware` lists the files of the package.
+
+The tool is under the BSD 2-Clause licence, Copyright (c) 2026 REVYTECH,
+Inc.
+
+Prepared by REVYTECH, Inc.

@@ -12,7 +12,12 @@
 #
 #   - the number of a work package: "Track #1234" and every "#1234";
 #   - a path of a home directory;
-#   - the name of a machine of the project.
+#   - the name of a machine of the project;
+#   - the words of ours that the reader does not need: the fleet, the
+#     repositories that only we can open and the name of another system of
+#     ours;
+#   - every address of the copy: it has to name a host of the public, so
+#     that no link points at a place where the reader cannot go.
 #
 # The names of the machines of the project are not in this file: they are
 # in a file that is not in the repository, and NF_INTERNAL_NAMES_FILE
@@ -98,6 +103,89 @@ shipped_list() {
 }
 
 shipped_list > "${WORK}/shipped"
+
+# A copy of the tree in a directory of its own.  The copy holds the tests,
+# the Makefile of the tree and every file that is shipped, so that the
+# lint can be run in it.  One function and not two: a file that the lint
+# needs is added in one place and not forgotten in the other copy.
+copy_tree() {
+	dest=$1
+	mkdir -p "${dest}/tests"
+	cp "${ROOT}/tests/docs-test.sh" "${ROOT}/tests/gen-supported-table.py" \
+	    "${dest}/tests/"
+	cp "${ROOT}/Makefile" "${dest}/Makefile"
+	while IFS= read -r file; do
+		[ -f "${file}" ] || continue
+		rel=${file#"${ROOT}/"}
+		mkdir -p "${dest}/$(dirname "${rel}")"
+		cp "${file}" "${dest}/${rel}"
+	done < "${WORK}/shipped"
+}
+
+# The words of ours that the copy the public reads must not hold: the
+# fleet of machines, the repositories that only we can open and the name
+# of another system of ours.  "CloudBSDFleet" is a "cloudbsd" with a
+# capital letter, so one pattern refuses both.  The words are matched
+# without regard to the case: a word that is written in another case is
+# the same word.  The word "fleet" is matched as a word and not as a
+# part of one: a word of the reader that holds it is not a word of ours.
+INTERNAL_WORD_PATTERN='cloudbsd|internalpkg|internal repositor|(^|[^[:alnum:]_])fleet([^[:alnum:]_]|$)'
+
+# The hosts that the copy may name: the download server of NVIDIA and
+# the project of the sources.  A host that is a subdomain of one of them
+# is the same host for this check.  Every other host is a place where the
+# reader cannot go, or a place that is ours.
+PUBLIC_HOSTS='nvidia.com github.com opensource.org fsf.org spdx.org'
+
+# The hosts of the addresses of one file, one per line.  An address is a
+# URL with a scheme, or the path of a repository of git.  The path of a
+# repository of git is written "git@host:path": a mail address that is
+# followed by a colon is not one, and is not read as one.
+#
+# Every scheme is read, and not a list of the schemes that are known: a
+# scheme that is not in the list is a place the reader cannot go to as
+# well.  A scheme without an authority, such as a mail address, has no
+# host to name and is not read as one.  An address without a scheme is
+# not an address here: it is a word of the text, and the text of a
+# sentence is not a link.
+#
+# The copy is written in Markdown: an address is often in a backtick and
+# ends a sentence with a dot.  The backtick is not a part of the address
+# and the dot is not a part of the host, so neither is read as one.
+link_hosts() {
+	grep -ohE '[A-Za-z][A-Za-z0-9+.-]*://[^[:space:]"<>)]+|git@[A-Za-z0-9.-]+:[^[:space:]"<>)]+' \
+	    "$1" 2>/dev/null | while IFS= read -r addr; do
+		case "${addr}" in
+		*://*)
+			rest=${addr#*://}
+			host=${rest%%/*}
+			host=${host%%\?*}
+			host=${host%%\#*}
+			host=${host%%:*}
+			;;
+		*@*)
+			host=${addr#*@}
+			host=${host%%:*}
+			;;
+		*)
+			continue
+			;;
+		esac
+		host=$(printf '%s' "${host}" | sed -e 's/[.,;:`]*$//')
+		[ -n "${host}" ] || continue
+		printf '%s\n' "${host}" | tr 'A-Z' 'a-z'
+	done
+}
+
+# Is the host one that the reader can go to?
+host_is_public() {
+	for allowed in ${PUBLIC_HOSTS}; do
+		case "$1" in
+		"${allowed}"|*."${allowed}") return 0 ;;
+		esac
+	done
+	return 1
+}
 
 # The names of the machines of the project.  They are in a file that is
 # not in the repository: one pattern per line.
@@ -256,7 +344,9 @@ else
 		elif ! diff -u "${WORK}/table" "${WORK}/readme" \
 		    > "${WORK}/table.diff"; then
 			fail "supported table: the table of the README is not the" \
-			    "table of the files" "$(cat "${WORK}/table.diff")"
+			    "table of the files; the table is made by" \
+			    "tests/gen-supported-table.py and is not written by hand" \
+			    "$(cat "${WORK}/table.diff")"
 		else
 			ok "the table of the README is the table of the files"
 		fi
@@ -389,15 +479,7 @@ if [ -n "${NF_LINT_NO_SPACE_CASE:-}" ]; then
 	printf '# the case of the path with a space is skipped in a copy\n'
 else
 	SPACE="${WORK}/a repo"
-	mkdir -p "${SPACE}/tests"
-	cp "${ROOT}/tests/docs-test.sh" "${ROOT}/tests/gen-supported-table.py" \
-	    "${SPACE}/tests/"
-	while IFS= read -r file; do
-		[ -f "${file}" ] || continue
-		rel=${file#"${ROOT}/"}
-		mkdir -p "${SPACE}/$(dirname "${rel}")"
-		cp "${file}" "${SPACE}/${rel}"
-	done < "${WORK}/shipped"
+	copy_tree "${SPACE}"
 	printf '\nA work package of the project: Track #1234\n' \
 	    >> "${SPACE}/sysutils/nvidia-firmware/pkg-descr"
 	out=$(cd "${SPACE}" && NF_LINT_NO_SPACE_CASE=1 sh tests/docs-test.sh 2>&1)
@@ -418,6 +500,15 @@ fi
 # The lint runs without TMPDIR.  The variable is not set by a shell and
 # the targets of the root Makefile do not set it: a lint that needs it
 # fails on an ordinary machine, and the targets that run it fail with it.
+#
+# Two things are checked here.  The first one is that the lint ran at
+# all: a lint that could not run has no plan, and the plan is the line
+# that counts the cases.  The second one is that the missing variable
+# cost no case: the lint is run twice, once with the variable and once
+# without it, and the run without it may not fail more cases than the
+# run with it.  The verdict of the other rules is not the verdict of
+# this one, so a tree that holds a file the lint refuses does not make
+# this case fail.
 new_case
 if [ -n "${NF_LINT_NO_TMPDIR_CASE:-}" ]; then
 	printf '# the case of the missing TMPDIR is skipped in a copy\n'
@@ -425,11 +516,19 @@ else
 	out=$(cd "${ROOT}" && env -u TMPDIR NF_LINT_NO_SPACE_CASE=1 \
 	    NF_LINT_NO_TMPDIR_CASE=1 sh tests/docs-test.sh 2>&1)
 	rc=$?
-	if [ ${rc} -ne 0 ]; then
+	with=$(cd "${ROOT}" && TMPDIR="${WORK}" NF_LINT_NO_SPACE_CASE=1 \
+	    NF_LINT_NO_TMPDIR_CASE=1 sh tests/docs-test.sh 2>&1 | \
+	    grep -c '^not ok')
+	without=$(printf '%s\n' "${out}" | grep -c '^not ok')
+	if ! printf '%s\n' "${out}" | grep -qE '^1\.\.[0-9]+$'; then
 		fail "no TMPDIR: the lint did not run without TMPDIR" \
 		    "exit ${rc}" "${out}"
+	elif [ "${without}" -gt "${with}" ]; then
+		fail "no TMPDIR: the lint fails more cases without TMPDIR than" \
+		    "with it" "with TMPDIR: ${with}" "without TMPDIR: ${without}" \
+		    "${out}"
 	else
-		ok "the lint runs without TMPDIR"
+		ok "the lint runs without TMPDIR and loses no case to it"
 	fi
 fi
 
@@ -473,6 +572,188 @@ if [ -n "${missing}" ]; then
 	    "${missing}"
 else
 	ok "the copy tells how the firmware is fetched later"
+fi
+
+# --------------------------------------------------------------- test 16
+# The copy that the public reads names the product and nothing else.  The
+# machines of the project, the repositories that only we can open and the
+# name of another system of ours are ours and are not of the reader: a
+# reader has a machine with a graphics adapter and a package, and the
+# names of our machines mean nothing to them.
+new_case
+offenders=
+while IFS= read -r file; do
+	[ -f "${file}" ] || continue
+	found=$(grep -niE "${INTERNAL_WORD_PATTERN}" "${file}" 2>/dev/null)
+	[ -n "${found}" ] || continue
+	offenders="${offenders}${file}:
+${found}
+"
+done < "${WORK}/shipped"
+if [ -n "${offenders}" ]; then
+	fail "no internal name: a shipped file names the machines of the" \
+	    "project, a repository of ours or another system of ours; reword" \
+	    "the file" "${offenders}"
+else
+	ok "no shipped file names the machines of the project, a repository of" \
+	    "ours or another system of ours"
+fi
+
+# --------------------------------------------------------------- test 17
+# No link to a place where the reader cannot go.  Every address of the
+# copy that the public reads has to name a host of the public: a link to
+# a repository of ours is a link to a place where the reader gets nothing.
+new_case
+offenders=
+while IFS= read -r file; do
+	[ -f "${file}" ] || continue
+	for host in $(link_hosts "${file}"); do
+		if ! host_is_public "${host}"; then
+			offenders="${offenders}${file}: ${host}
+"
+		fi
+	done
+done < "${WORK}/shipped"
+if [ -n "${offenders}" ]; then
+	fail "no private address: a shipped file names a host that the reader" \
+	    "cannot go to; remove the link, or add the host to PUBLIC_HOSTS in" \
+	    "tests/docs-test.sh" "${offenders}"
+else
+	ok "every address of the shipped files names a host of the public"
+fi
+
+# --------------------------------------------------------------- test 18
+# The two rules above can fail: a rule that is never exercised cannot be
+# trusted.  A copy of the tree is planted with the words and with the
+# addresses, and the lint has to fail on every one of them.  Every word
+# and every address has its own host, so that the output says which one
+# was found: a rule that catches one of them catches the other as well,
+# and the output would not tell the two apart.
+#
+# The copy holds two addresses of the public as well, written the way the
+# copy of a reader writes them: in a backtick and at the end of a
+# sentence.  The lint may not refuse them.
+new_case
+if [ -n "${NF_LINT_NO_PLANT_CASE:-}" ]; then
+	printf '# the case of the planted copy is skipped in a copy\n'
+else
+	PLANT="${WORK}/planted repo"
+	copy_tree "${PLANT}"
+	{
+		printf '\nThe packages of this tree go to the CloudBSDFleet.\n'
+		printf 'The internal repository of the project is here.\n'
+		printf 'The name of the package is InternalPkg.\n'
+		printf 'https://https-host.invalid/repo\n'
+		printf 'git@git-host.invalid:nvidia-firmware.git\n'
+		printf 'svn://svn-host.invalid/source\n'
+		printf '`https://github.com` is a link of the public.\n'
+		printf 'The driver is at https://nvidia.com.\n'
+	} >> "${PLANT}/sysutils/nvidia-firmware/pkg-descr"
+	out=$(cd "${PLANT}" && NF_LINT_NO_SPACE_CASE=1 \
+	    NF_LINT_NO_TMPDIR_CASE=1 NF_LINT_NO_PLANT_CASE=1 \
+	    sh tests/docs-test.sh 2>&1)
+	rc=$?
+	missing=
+	[ ${rc} -ne 0 ] || missing="${missing} the lint did not fail"
+	for word in CloudBSDFleet 'internal repository' InternalPkg; do
+		printf '%s\n' "${out}" | grep -qF "${word}" || \
+		    missing="${missing} the word ${word}"
+	done
+	for host in https-host.invalid git-host.invalid svn-host.invalid; do
+		printf '%s\n' "${out}" | grep -qF ": ${host}" || \
+		    missing="${missing} the host ${host}"
+	done
+	printf '%s\n' "${out}" | grep -q 'PUBLIC_HOSTS' || \
+	    missing="${missing} the hint that names PUBLIC_HOSTS"
+	printf '%s\n' "${out}" | grep -qF 'github.com`' && \
+	    missing="${missing} the link in a backtick was refused"
+	printf '%s\n' "${out}" | grep -qF 'nvidia.com.' && \
+	    missing="${missing} the link at the end of a sentence was refused"
+	if [ -n "${missing}" ]; then
+	    fail "the planted copy: the lint did not find what it has to find" \
+	    "missing:${missing}" "${out}"
+	else
+	    ok "the lint finds every word and every address it refuses, and" \
+	    "leaves the addresses of the public alone"
+	fi
+fi
+
+# --------------------------------------------------------------- test 19
+# The licence of the firmware is discoverable: the README has to name the
+# file of the agreement that the package installs.  The name of the file
+# is the licence of the port and the directory is the one of the licence
+# framework, so the README cannot name a file that the package does not
+# install.  The port has to name the file of the agreement as well, and
+# the file has to be there: a licence that the port names and does not
+# ship is not a licence the reader can read.
+new_case
+lic=$(awk -F= '/^LICENSE=/ { gsub(/[ \t]/, "", $2); print $2 }' \
+    "${PORT}/Makefile")
+licfile=$(awk -F= '/^LICENSE_FILE=/ { gsub(/[ \t]/, "", $2); print $2 }' \
+    "${PORT}/Makefile")
+port=$(awk -F= '/^PORTNAME=/ { gsub(/[ \t]/, "", $2); print $2 }' \
+    "${PORT}/Makefile")
+case "${licfile}" in
+'') rel= ;;
+*) rel=$(printf '%s' "${licfile}" | sed -e 's|^[$]{FILESDIR}/|files/|') ;;
+esac
+missing=
+if [ -z "${lic}" ]; then
+	missing="${missing} the port names no licence"
+fi
+if [ -z "${licfile}" ]; then
+	missing="${missing} the port names no file of the licence"
+elif [ ! -f "${PORT}/${rel}" ]; then
+	missing="${missing} the file of the licence is not in the tree"
+fi
+if [ -z "${port}" ]; then
+	missing="${missing} the port names no port"
+else
+	grep -qF "share/licenses/${port}-" "${ROOT}/README.md" || \
+	    missing="${missing} the directory of the licence"
+	for one in ${lic}; do
+		grep -qF "/${one}" "${ROOT}/README.md" || \
+		    missing="${missing} the file ${one}"
+	done
+fi
+if [ -n "${missing}" ]; then
+	fail "the licence is discoverable: the README names no file of the" \
+	    "licence that the package installs" "missing:${missing}"
+else
+    ok "the README names the file of the licence that the package installs"
+fi
+
+# --------------------------------------------------------------- test 20
+# The removal tells the reader to unload the module before the package
+# goes: the reader that copies the commands in the order they are written
+# has to unload first.  The command that takes the same files away has
+# the same prerequisites, and the README has to say both of them: the
+# rights of root, and the module that has to be unloaded.  The reader
+# also has to be able to find out whether the module is loaded at all.
+new_case
+unload=$(grep -n 'kldunload nvidia' "${ROOT}/README.md" | head -1 | cut -d: -f1)
+delete=$(grep -n 'pkg delete nvidia-firmware' "${ROOT}/README.md" | head -1 \
+    | cut -d: -f1)
+missing=
+if [ -z "${unload}" ] || [ -z "${delete}" ]; then
+	missing="${missing} the README names no unload and no removal"
+elif [ "${unload}" -ge "${delete}" ]; then
+	missing="${missing} the README takes the package away before it says to" \
+	    "unload the module (unload: line ${unload}, remove: line ${delete})"
+fi
+grep -qF 'kldstat -m nvidia' "${ROOT}/README.md" || \
+    missing="${missing} the README does not say how to find out whether the module is loaded"
+grep -qi 'busy' "${ROOT}/README.md" || \
+    missing="${missing} the README does not say what to do when the module is busy"
+grep -A4 'nvidia-firmware clean' "${ROOT}/README.md" 2>/dev/null | \
+    grep -qi 'root' || \
+    missing="${missing} the README does not say that the command that takes the files away needs the rights of root"
+if [ -n "${missing}" ]; then
+	fail "the removal: the README does not tell the reader what to do" \
+	    "missing:${missing}"
+else
+	ok "the README unloads the module before the package goes away, and" \
+	    "says what the command that takes the files away needs"
 fi
 
 printf '1..%d\n' "${CASE}"

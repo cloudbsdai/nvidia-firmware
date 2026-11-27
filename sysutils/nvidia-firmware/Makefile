@@ -4,7 +4,7 @@ PORTNAME=	nvidia-firmware
 # are never the version of the package.
 DISTVERSION=	2026.11.26
 CATEGORIES=	sysutils
-MAINTAINER=	ports@cloudbsd.org
+MAINTAINER=	mark@revytechinc.com
 COMMENT=	Fetch and place the NVIDIA GSP firmware the adapters need
 WWW=		https://www.nvidia.com
 
