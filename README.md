@@ -10,8 +10,12 @@ not match is never placed, and nothing of it is left behind.
 
 ## Installing
 
-The package is in the checkout of this repository.  Install it with the
-ports framework of FreeBSD, from the directory of the port:
+With a package repository that carries the package:
+
+    pkg install nvidia-firmware
+
+Or from the checkout of this repository, with the ports framework of
+FreeBSD, from the directory of the port:
 
     cd sysutils/nvidia-firmware
     make install
@@ -58,6 +62,38 @@ Every command that changes something accepts `-n`, which prints what it
 would do and changes nothing.  The manual page of the tool tells more:
 `man nvidia-firmware`.
 
+### What the commands print
+
+`detect` prints the driver version it used, the number of adapters it
+found, and every file it placed or took away:
+
+    version: 620.73.04
+    cards: 1
+    placed: gsp_ga10x.bin
+    removed: gsp_tu10x.bin
+
+`list` prints the pin table, one file per line: the version, the file,
+the size, the hash, the families the file serves and whether it is in
+place.  `list --supported` prints the firmware the package supports and
+nothing else, and `list --cards` prints the adapters of the machine
+with the files each of them needs.
+
+`status` prints the directory that holds the firmware, whether the
+no-delete setting is on, and one line per file with its version, its
+size and the adapter it serves.
+
+`verify` prints the result of the check and the number of errors:
+
+    verify: ok (0 errors)
+
+`install` prints the files it placed, or, with `-n`, the files it would
+place.  `remove` and `clean` print the file they took away:
+
+    removed: gsp_ga10x.bin
+
+A command that fails says why on the standard error, with the name of
+the program in front of the line.
+
 ### When the machine has no network
 
 The tool takes the files from a directory of your own:
@@ -73,6 +109,10 @@ Every file of the table below is fetched from NVIDIA and is checked
 against the pin table of the package before it is placed.  The table
 names the driver release every file belongs to, its size, its hash and
 the chips it serves.
+
+The table is generated from the files of the package, and it is checked
+against them: the two are always the same, and the table is not written
+by hand.
 
 <!-- BEGIN SUPPORTED FIRMWARE -->
 | Driver release | File | Size (bytes) | sha256 | GPU families |
